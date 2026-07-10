@@ -34,3 +34,16 @@ export function formatNet(
       });
   }
 }
+
+/**
+ * LL2's `pad.location.name` is a full descriptive string (e.g. "Cape
+ * Canaveral SFS, FL, USA"); the schedule table wants the short, colloquial
+ * form ("Cape Canaveral"). Takes everything before the first comma and
+ * drops a handful of near-universally-dropped facility-type suffixes.
+ * Best-effort, not a curated per-site lookup.
+ */
+export function formatSite(padLocation: string | null): string {
+  if (!padLocation) return "TBD";
+  const beforeComma = padLocation.split(",")[0].trim();
+  return beforeComma.replace(/\s+(SFS|SFB|AFB|AFS)$/i, "");
+}
