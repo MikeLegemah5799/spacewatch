@@ -3,7 +3,7 @@
  * into the unified schema (see ARCHITECTURE.md §6, code-standards.md).
  * ================================================================== */
 
-import type { Launch, NewAgency, NewLaunch } from "@/lib/db";
+import type { Launch, NewAgency, NewLaunch, NewLaunchAgency } from "@/lib/db";
 import type { LL2Agency, LL2Launch } from "@/lib/providers/ll2";
 import type { NasaImageResult } from "@/lib/providers/nasa";
 import type { SpaceXLaunch } from "@/lib/providers/spacex";
@@ -81,6 +81,24 @@ export function normalizeAgency(raw: LL2Agency): NewAgency {
 }
 
 /**
+ * Every agency relevant to a launch: the operator (`launch_service_provider`)
+ * plus `mission.agencies` — a genuinely distinct set, not a superset (a Crew
+ * mission's operator is SpaceX; `mission.agencies` lists NASA + international
+ * ISS partners, and often doesn't include SpaceX at all). Deduplicated by
+ * slug, operator first, since the two lists can overlap (many single-agency
+ * launches just repeat the operator in `mission.agencies`, or list nothing).
+ */
+function getStakeholderAgencies(raw: LL2Launch): LL2Agency[] {
+  const bySlug = new Map<string, LL2Agency>();
+  bySlug.set(slugify(raw.launch_service_provider.name), raw.launch_service_provider);
+  for (const agency of raw.mission?.agencies ?? []) {
+    const key = slugify(agency.name);
+    if (!bySlug.has(key)) bySlug.set(key, agency);
+  }
+  return [...bySlug.values()];
+}
+
+/**
  * `isUpcoming` is set by the caller rather than inferred from `raw.status`,
  * matching which LL2 endpoint the row came from: schedule-sync always
  * passes `true` (it only ever reads `/launch/upcoming/`), backfill always
@@ -107,10 +125,13 @@ export function normalizeLaunch(raw: LL2Launch, isUpcoming: boolean): NewLaunch 
     // slug that could collide (mission names like "Demo Flight" repeat).
     slug: `${slugify(missionName)}-${raw.id.slice(0, 8)}`,
     agencyId: slugify(raw.launch_service_provider.name),
-    providerName: displayAgencyName(
-      raw.launch_service_provider.name,
-      raw.launch_service_provider.abbrev,
-    ),
+    // All stakeholders joined ("SpaceX · NASA · JAXA · Roscosmos" for a
+    // Crew mission), not just the operator — see getStakeholderAgencies.
+    // `agencyId` above stays operator-only (rocket-specific queries);
+    // this is purely the display string.
+    providerName: getStakeholderAgencies(raw)
+      .map((agency) => displayAgencyName(agency.name, agency.abbrev))
+      .join(" · "),
     rocket: raw.rocket.configuration.name,
     spacexApiId: raw.r_spacex_api_id,
     net: raw.net ? new Date(raw.net) : null,
@@ -130,6 +151,25 @@ export function normalizeLaunch(raw: LL2Launch, isUpcoming: boolean): NewLaunch 
     orbit: orbitAbbrev,
     searchText: [raw.name, raw.mission?.description].filter(Boolean).join(" "),
   };
+}
+
+/** Every stakeholder agency for a launch, normalized for upserting into
+ * `agencies` — not just the operator, since `mission.agencies` can name
+ * agencies `normalizeAgency(raw.launch_service_provider)` alone would
+ * never see (international ISS partners on a Crew mission, for example). */
+export function normalizeStakeholderAgencies(raw: LL2Launch): NewAgency[] {
+  return getStakeholderAgencies(raw).map(normalizeAgency);
+}
+
+/** Join-table rows linking a launch to every one of its stakeholder
+ * agencies — the source of truth for "which agencies does this launch
+ * belong to," which `launches.agencyId` (operator-only) can't answer. */
+export function normalizeLaunchAgencyLinks(raw: LL2Launch): NewLaunchAgency[] {
+  const launchId = `ll2:${raw.id}`;
+  return getStakeholderAgencies(raw).map((agency) => ({
+    launchId,
+    agencyId: slugify(agency.name),
+  }));
 }
 
 /**

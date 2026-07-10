@@ -16,12 +16,17 @@ function chipClass(active: boolean) {
     : "rounded-md border border-line-soft px-4 py-2 text-sm text-ink-muted hover:text-ink";
 }
 
+interface ProviderOption {
+  id: string;
+  name: string;
+}
+
 export function LaunchesBrowser({
   initial,
   providers,
 }: {
   initial: LaunchesPageResult;
-  providers: string[];
+  providers: ProviderOption[];
 }) {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -105,14 +110,14 @@ export function LaunchesBrowser({
         <button type="button" className={chipClass(provider === null)} onClick={() => setProvider(null)}>
           All providers
         </button>
-        {providers.map((name) => (
+        {providers.map((p) => (
           <button
-            key={name}
+            key={p.id}
             type="button"
-            className={chipClass(provider === name)}
-            onClick={() => setProvider(name)}
+            className={chipClass(provider === p.id)}
+            onClick={() => setProvider(p.id)}
           >
-            {name}
+            {p.name}
           </button>
         ))}
 

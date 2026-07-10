@@ -28,8 +28,8 @@
 
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db, syncRuns } from "@/lib/db";
-import { upsertAgencies, upsertLaunches } from "@/lib/db/queries";
-import { normalizeAgency, normalizeLaunch } from "@/lib/normalize";
+import { upsertAgencies, upsertLaunchAgencyLinks, upsertLaunches } from "@/lib/db/queries";
+import { normalizeLaunch, normalizeLaunchAgencyLinks, normalizeStakeholderAgencies } from "@/lib/normalize";
 import { fetchPreviousLaunches, LL2RateLimitError } from "@/lib/providers/ll2";
 
 export const maxDuration = 60;
@@ -44,11 +44,13 @@ const CATCH_UP_PAGES = 2;
 async function ingestPage(pageUrl?: string) {
   const { launches: rawLaunches, next } = await fetchPreviousLaunches(pageUrl);
 
-  const agencyRows = rawLaunches.map((launch) => normalizeAgency(launch.launch_service_provider));
+  const agencyRows = rawLaunches.flatMap(normalizeStakeholderAgencies);
   const launchRows = rawLaunches.map((launch) => normalizeLaunch(launch, false));
+  const agencyLinkRows = rawLaunches.flatMap(normalizeLaunchAgencyLinks);
 
   await upsertAgencies(agencyRows);
   const upserted = await upsertLaunches(launchRows);
+  await upsertLaunchAgencyLinks(agencyLinkRows);
 
   return { upserted, next };
 }

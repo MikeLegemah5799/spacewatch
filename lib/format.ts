@@ -9,6 +9,17 @@ export function getMissionName(name: string): string {
   return parts.length > 1 ? parts[parts.length - 1].trim() : name.trim();
 }
 
+/**
+ * `launches.providerName` is every stakeholder joined with " · "
+ * ("SpaceX · NASA · JAXA"), operator always first (see
+ * normalize.ts#getStakeholderAgencies). Hero/chip contexts want just the
+ * operator (a single compact pill, matching the dashboard's original
+ * design); table/fact-list contexts show the full joined string as-is.
+ */
+export function getOperatorName(providerName: string): string {
+  return providerName.split(" · ")[0];
+}
+
 export function formatNet(
   net: Date | null,
   precision: Launch["netPrecision"],

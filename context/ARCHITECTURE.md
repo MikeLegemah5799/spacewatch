@@ -157,7 +157,11 @@ export interface Launch {
   id: string;                 // stable internal id (slug of provider + ext id)
   source: "ll2" | "spacex" | "nasa";
   name: string;               // e.g. "Falcon 9 Block 5 | Starlink Group 12-7"
-  provider: string;           // "SpaceX", "NASA", ...
+  provider: string;           // every stakeholder joined, operator first —
+                              // "SpaceX", or "SpaceX · NASA · JAXA · Roscosmos"
+                              // for a Crew mission. `agencyId` (not shown
+                              // here) stays operator-only; see §3 and the
+                              // `launch_agencies` join table.
   rocket: string;             // "Falcon 9", "SLS Block 1", ...
   net: string | null;         // ISO "no earlier than" datetime
   windowStart: string | null;

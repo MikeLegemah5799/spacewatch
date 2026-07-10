@@ -210,11 +210,40 @@ export const watchlist = pgTable(
 );
 
 /* ------------------------------------------------------------------
+ * Launch agencies  —  every stakeholder agency per launch, not just the
+ * operator. LL2's `mission.agencies` is genuinely distinct data from
+ * `launch_service_provider`: a Crew mission's operator is SpaceX, but
+ * `mission.agencies` lists NASA + international ISS partners (JAXA, ESA,
+ * CSA, Roscosmos) — a disjoint set, not a superset. `launches.agencyId`
+ * stays the operator-only FK (rocket-specific queries); this table is
+ * the source of truth for "which agencies are relevant to this launch
+ * in any capacity," which is what makes an agency's launch list/count
+ * actually complete (see ARCHITECTURE.md §3, progress-tracker.md).
+ * ------------------------------------------------------------------ */
+
+export const launchAgencies = pgTable(
+  "launch_agencies",
+  {
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id, { onDelete: "cascade" }),
+    agencyId: text("agency_id")
+      .notNull()
+      .references(() => agencies.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.launchId, t.agencyId] }),
+    index("launch_agencies_agency_idx").on(t.agencyId),
+  ],
+);
+
+/* ------------------------------------------------------------------
  * Relations
  * ------------------------------------------------------------------ */
 
 export const agenciesRelations = relations(agencies, ({ many }) => ({
   launches: many(launches),
+  launchAgencies: many(launchAgencies),
 }));
 
 export const launchesRelations = relations(launches, ({ one, many }) => ({
@@ -223,6 +252,18 @@ export const launchesRelations = relations(launches, ({ one, many }) => ({
     references: [agencies.id],
   }),
   watchers: many(watchlist),
+  stakeholders: many(launchAgencies),
+}));
+
+export const launchAgenciesRelations = relations(launchAgencies, ({ one }) => ({
+  launch: one(launches, {
+    fields: [launchAgencies.launchId],
+    references: [launches.id],
+  }),
+  agency: one(agencies, {
+    fields: [launchAgencies.agencyId],
+    references: [agencies.id],
+  }),
 }));
 
 export const watchlistRelations = relations(watchlist, ({ one }) => ({
@@ -241,3 +282,4 @@ export type NewLaunch = typeof launches.$inferInsert;
 export type Agency = typeof agencies.$inferSelect;
 export type NewAgency = typeof agencies.$inferInsert;
 export type SyncRun = typeof syncRuns.$inferSelect;
+export type NewLaunchAgency = typeof launchAgencies.$inferInsert;

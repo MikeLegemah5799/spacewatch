@@ -44,6 +44,12 @@ export interface LL2Mission {
   description: string | null;
   type: string | null;
   orbit: LL2Orbit | null;
+  /** Mission stakeholders — genuinely distinct from
+   * `launch_service_provider` (the rocket operator), not a superset of
+   * it. A Crew mission's operator is SpaceX; `agencies` here lists NASA
+   * + international ISS partners, and often doesn't include SpaceX at
+   * all. See lib/normalize.ts and progress-tracker.md. */
+  agencies: LL2Agency[];
 }
 
 export interface LL2RocketConfiguration {

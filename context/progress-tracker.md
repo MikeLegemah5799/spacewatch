@@ -9,9 +9,9 @@ change.
 
 ## Current Goal
 
-- `/launches/[slug]` detail page, matching the approved mockup — the
-  route ARCHITECTURE.md §7 always planned but never built, and the only
-  place `launches.enrichment` gets surfaced in the UI.
+- The recurring "NASA · SpaceX" combined-provider question, open since
+  the dashboard unit and touched again by NASA enrichment and the launch
+  detail page — resolve it properly instead of deferring again.
 
 ## Completed
 
@@ -447,10 +447,85 @@ change.
   data. Confirmed 404 for an unknown slug. Deleted all seed data
   afterward.
 
+- **Researched before designing anything, same pattern as every prior
+  scoping decision**: checked LL2's `mission.agencies` field against real
+  data (dev mirror) rather than guessing. Two findings that shaped the
+  whole unit: (1) it's genuinely distinct data, not an echo of the
+  operator — "Swift Boost Mission" has `launch_service_provider:
+  "Northrop Grumman"` but `mission.agencies: ["Katalyst Space", "NASA"]`,
+  a disjoint set; (2) real Crew missions (Crew-11/12/13) have 3
+  international stakeholders (JAXA/ESA/CSA + NASA + Roscosmos) and
+  *don't* include SpaceX (the operator) in `mission.agencies` at all —
+  so the mockups' clean 2-agency "NASA · SpaceX" was simplified/
+  illustrative, not literally reproducible. Also surfaced a real,
+  concrete bug in already-shipped code: NASA's `/agencies` page only
+  ever queried `launches.agencyId` (operator), so it showed zero Crew
+  missions despite NASA astronauts being aboard every one. Presented all
+  of this before writing code; user chose the full fix (join table +
+  agency pages) over a display-only patch or dropping the question.
+- `lib/db/schema.ts` — new `launch_agencies` many-to-many table
+  (composite PK on `launchId`+`agencyId`) — the source of truth for
+  "every agency relevant to a launch in any capacity." `launches.agencyId`
+  is unchanged (still operator-only, still what rocket-specific queries
+  should use). Migration `drizzle/0003_*.sql`.
+- `lib/providers/ll2.ts` — added `agencies: LL2Agency[]` to `LL2Mission`.
+- `lib/normalize.ts` — `getStakeholderAgencies` (operator + `mission.agencies`,
+  deduplicated by slug, operator always first — many single-agency
+  launches just repeat the operator in `mission.agencies` or list
+  nothing, so dedup matters). `providerName` is now this list joined
+  with " · " for *display*; `normalizeStakeholderAgencies` /
+  `normalizeLaunchAgencyLinks` produce the upsert rows for `agencies` and
+  `launch_agencies` respectively — every stakeholder gets upserted as a
+  real agency now, not just the operator.
+- `lib/db/queries.ts` — `upsertLaunchAgencyLinks` (idempotent via the
+  composite PK; doesn't clean up stale links if a launch's stakeholder
+  list changes upstream later, accepted as a known limitation rather than
+  added delete-then-insert complexity for a rare edge case). Switched
+  `getAgenciesList`, `getAgencyStats`, `getAgencyLaunchesPage`,
+  `getMoreLaunchesFromAgency` from `launches.agencyId` to a
+  `launch_agencies` join — this is the actual fix for the NASA/Crew-
+  missions gap. `getTopProviders` now groups by agency via the join
+  table (clean single-agency chips) instead of by the now-combined
+  `providerName` string, which would've fragmented into one noisy bucket
+  per unique multi-agency combination. `getLaunchesPage`'s `provider`
+  filter changed from an exact-string match on `providerName` to an
+  `EXISTS` subquery against `launch_agencies` — this was a required
+  fix, not a nice-to-have: once `providerName` became a combined string,
+  the old filter would have silently stopped matching e.g. "SpaceX" for
+  any Crew mission (its `providerName` is no longer exactly `"SpaceX"`).
+- Updated both ingestion crons (`sync`, `backfill`) to upsert *every*
+  stakeholder agency and their `launch_agencies` links, not just the
+  operator — `flatMap` over `normalizeStakeholderAgencies` /
+  `normalizeLaunchAgencyLinks` per batch.
+- Hero/chip contexts (dashboard next-launch, launch detail hero) now show
+  just the operator via new `lib/format.ts#getOperatorName` (splits
+  `providerName` on its first segment) rather than the full combined
+  string — matches the original mockups' single clean pill, while table/
+  fact-list contexts (schedule, `/launches`, Mission Facts) show the full
+  combined string. The launch detail page's "More from `<X>`" heading
+  and query both use the operator specifically, since that's what
+  `getMoreLaunchesFromAgency` was already querying by.
+- Verified end to end against real data (dev mirror): ran the actual
+  ingestion crons rather than fabricating fixtures, confirmed Crew-11/12/13
+  ingested with correct combined `providerName` ("SpaceX · JAXA · NASA ·
+  RFSA" etc.) and correct `launch_agencies` rows (4 stakeholders each).
+  Screenshotted NASA's real agency page — it now lists Crew-11/12/13
+  alongside Artemis II and CRS missions, the concrete bug this unit set
+  out to fix, confirmed with real data, not a seeded example. Screenshotted
+  Crew-11's detail page: hero chip "SpaceX" (operator only), Mission Facts
+  "SpaceX · JAXA · NASA · RFSA" (full list), "More from SpaceX" (operator).
+  Confirmed via direct API calls that filtering `/launches` by `spacex`
+  still includes Crew-11 (operator match) *and* that filtering by NASA's
+  real agency id also includes it (stakeholder-only match, proving the
+  join-based filter fix actually works, not just the display). Reconfirmed
+  `/launches`' top-provider chips stayed clean single-agency labels
+  despite `providerName` now being a combined string. Deleted all data
+  afterward — DB is empty again.
+
 ## In Progress
 
-- None — this unit (`/launches/[slug]` detail page) is complete and
-  verified end to end.
+- None — this unit (agency stakeholder join table) is complete and
+  verified end to end against real data.
 
 ## Next Up
 
@@ -460,6 +535,10 @@ change.
   missing — a small window, bounded by the ~15-min cadence, not
   eliminated. Acceptable for now; noting it so it isn't mistaken for a
   bug later.
+- `upsertLaunchAgencyLinks` never removes a stale link if a launch's
+  stakeholder list changes upstream after initial ingestion — additive
+  only. Not expected to matter much in practice (mission rosters rarely
+  change after the fact), but noting it as a known gap.
 
 ## Open Questions
 
@@ -471,14 +550,27 @@ change.
   down to its last request or two, and a real 15-minute schedule-sync cron
   plus a 10-page-per-run daily backfill will contend for the same ~15/hour
   ceiling once both are live.
-- Both the dashboard and schedule mockups show combined provider naming
-  ("NASA · SpaceX") for multi-agency missions, but `providerName` currently
-  only ever holds LL2's single `launch_service_provider` (see the existing
-  Architecture Decision below) — recurring across two mockups now, worth
-  deciding whether to join `mission.agencies` in the normalizer as its own
-  unit, rather than continuing to treat it as a one-off simplification.
 
 ## Architecture Decisions
+
+- Two agency concepts now coexist deliberately: `launches.agencyId` is
+  the operator (who launched the rocket — rocket-specific queries should
+  use this), and `launch_agencies` is every stakeholder (who's relevant
+  to the mission in any capacity — agency pages, "is this agency
+  involved" filters, and provider display should use this). Conflating
+  them would have either lost the operator-specific concept entirely or
+  kept the NASA/Crew-missions gap this unit exists to fix.
+- `providerName` (combined, for display) and `agencyId` (operator, for
+  filtering-by-rocket-operator semantics if ever needed) are kept as
+  separate concepts on `launches` rather than computing the combined
+  string at read time everywhere — still denormalized for fast reads,
+  consistent with the rest of the schema's philosophy, just now sourced
+  from `launch_agencies` at ingestion time instead of the operator alone.
+- `getOperatorName` and `getMoreLaunchesFromAgency`'s "More from `<X>`"
+  heading both derive the operator by taking `providerName`'s first
+  segment (string split) rather than a second DB query, since
+  `getStakeholderAgencies` always puts the operator first — cheap and
+  correct as long as that ordering invariant holds.
 
 - Launch detail is routed by `launches.slug`, not `launches.id` — a
   reversal of the original plan (`ARCHITECTURE.md` §7 said `[id]`,

@@ -20,10 +20,7 @@ export default async function LaunchesPage() {
           </p>
         </div>
 
-        <LaunchesBrowser
-          initial={initial}
-          providers={topProviders.map((p) => p.providerName)}
-        />
+        <LaunchesBrowser initial={initial} providers={topProviders} />
       </div>
     </AppShell>
   );

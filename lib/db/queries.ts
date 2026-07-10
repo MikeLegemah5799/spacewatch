@@ -3,7 +3,15 @@
  * ================================================================== */
 
 import { and, asc, count, desc, eq, gte, isNotNull, lt, lte, ne, notInArray, sql } from "drizzle-orm";
-import { agencies, db, launches, type NewAgency, type NewLaunch } from "@/lib/db";
+import {
+  agencies,
+  db,
+  launchAgencies,
+  launches,
+  type NewAgency,
+  type NewLaunch,
+  type NewLaunchAgency,
+} from "@/lib/db";
 
 export async function upsertAgencies(rows: NewAgency[]) {
   if (rows.length === 0) return 0;
@@ -30,6 +38,19 @@ export async function upsertAgencies(rows: NewAgency[]) {
     });
 
   return uniqueRows.length;
+}
+
+/** Idempotent — the composite (launchId, agencyId) primary key means a
+ * repeat run just no-ops on rows already there. Doesn't remove stale
+ * links if a launch's stakeholder list changes upstream after the fact;
+ * accepted as a known limitation (see progress-tracker.md) rather than
+ * adding delete-then-insert complexity for an edge case that's rare in
+ * practice. */
+export async function upsertLaunchAgencyLinks(links: NewLaunchAgency[]) {
+  if (links.length === 0) return 0;
+
+  await db.insert(launchAgencies).values(links).onConflictDoNothing();
+  return links.length;
 }
 
 export async function upsertLaunches(rows: NewLaunch[]) {
@@ -190,18 +211,26 @@ export async function getLaunchesSummary() {
   };
 }
 
-/** Top providers by launch count — backs the quick-filter chip row. */
+/** Top agencies by launch involvement (any stakeholder, not just operator)
+ * — backs the quick-filter chip row. Returns `id` (for filtering) and
+ * `name` (for the chip label) rather than the combined `providerName`
+ * display string, since grouping by that would fragment into one noisy
+ * bucket per unique multi-agency combination instead of clean per-agency
+ * counts. */
 export async function getTopProviders(limit = 3) {
   return db
-    .select({ providerName: launches.providerName, value: count() })
-    .from(launches)
-    .groupBy(launches.providerName)
+    .select({ id: agencies.id, name: agencies.name, value: count() })
+    .from(launchAgencies)
+    .innerJoin(agencies, eq(agencies.id, launchAgencies.agencyId))
+    .groupBy(agencies.id, agencies.name)
     .orderBy(desc(count()))
     .limit(limit);
 }
 
 export interface LaunchesQuery {
   search?: string;
+  /** An agency id (e.g. "spacex"), not a display name — matches any
+   * launch where that agency is a stakeholder, via `launch_agencies`. */
   provider?: string;
   outcome?: "success" | "failure";
   sort?: "newest" | "oldest";
@@ -217,7 +246,12 @@ export async function getLaunchesPage(params: LaunchesQuery = {}) {
   // The historical archive is, by definition, launches that are no longer
   // upcoming — see the `isUpcoming` comment in schema.ts.
   const conditions = [eq(launches.isUpcoming, false)];
-  if (params.provider) conditions.push(eq(launches.providerName, params.provider));
+  if (params.provider) {
+    const providerId = params.provider;
+    conditions.push(
+      sql`exists (select 1 from ${launchAgencies} where ${launchAgencies.launchId} = ${launches.id} and ${launchAgencies.agencyId} = ${providerId})`,
+    );
+  }
   if (params.outcome) conditions.push(eq(launches.status, params.outcome));
   if (params.search?.trim()) {
     conditions.push(
@@ -310,7 +344,8 @@ export async function getScheduleLaunchesForMonth(year: number, month: number) {
  * Agencies reads  —  app/agencies/page.tsx, app/agencies/[slug]/page.tsx
  * ================================================================== */
 
-/** All agencies with their launch count, most-launches first. `agencies.id`
+/** All agencies with their launch count (any stakeholder, not just
+ * operator — via `launch_agencies`), most-launches first. `agencies.id`
  * is the primary key, so Postgres allows grouping by it alone even though
  * name/abbrev/type/country_code aren't aggregated (functional dependency). */
 export async function getAgenciesList() {
@@ -321,12 +356,12 @@ export async function getAgenciesList() {
       abbrev: agencies.abbrev,
       type: agencies.type,
       countryCode: agencies.countryCode,
-      launchCount: count(launches.id),
+      launchCount: count(launchAgencies.launchId),
     })
     .from(agencies)
-    .leftJoin(launches, eq(launches.agencyId, agencies.id))
+    .leftJoin(launchAgencies, eq(launchAgencies.agencyId, agencies.id))
     .groupBy(agencies.id)
-    .orderBy(desc(count(launches.id)));
+    .orderBy(desc(count(launchAgencies.launchId)));
 }
 
 export async function getAgencyBySlug(slug: string) {
@@ -334,16 +369,19 @@ export async function getAgencyBySlug(slug: string) {
   return row ?? null;
 }
 
+/** Stats for every launch where this agency is a stakeholder — e.g. NASA's
+ * count includes Crew missions it didn't operate, per `launch_agencies`. */
 export async function getAgencyStats(agencyId: string) {
   const [totalRows, outcomeRows] = await Promise.all([
-    db.select({ value: count() }).from(launches).where(eq(launches.agencyId, agencyId)),
+    db.select({ value: count() }).from(launchAgencies).where(eq(launchAgencies.agencyId, agencyId)),
     db
       .select({
         success: sql<string>`count(*) filter (where ${launches.status} = 'success')`,
         terminal: sql<string>`count(*) filter (where ${launches.status} in ('success', 'failure'))`,
       })
-      .from(launches)
-      .where(eq(launches.agencyId, agencyId)),
+      .from(launchAgencies)
+      .innerJoin(launches, eq(launches.id, launchAgencies.launchId))
+      .where(eq(launchAgencies.agencyId, agencyId)),
   ]);
 
   const success = Number(outcomeRows[0]?.success ?? 0);
@@ -355,7 +393,8 @@ export async function getAgencyStats(agencyId: string) {
   };
 }
 
-/** Paginated launches for one agency, upcoming and past mixed together,
+/** Paginated launches where this agency is a stakeholder (operator or
+ * otherwise — via `launch_agencies`), upcoming and past mixed together,
  * newest-NET first — plain pagination rather than the full search/filter
  * treatment `/launches` gets, since there's nothing to filter *by* on a
  * page that's already scoped to one agency. */
@@ -364,7 +403,7 @@ export async function getAgencyLaunchesPage(agencyId: string, page = 1, pageSize
   const clampedPageSize = Math.min(50, Math.max(1, Math.trunc(pageSize) || 20));
   const offset = (clampedPage - 1) * clampedPageSize;
 
-  const where = eq(launches.agencyId, agencyId);
+  const where = eq(launchAgencies.agencyId, agencyId);
 
   const [rows, totalRows] = await Promise.all([
     db
@@ -376,12 +415,13 @@ export async function getAgencyLaunchesPage(agencyId: string, page = 1, pageSize
         netPrecision: launches.netPrecision,
         status: launches.status,
       })
-      .from(launches)
+      .from(launchAgencies)
+      .innerJoin(launches, eq(launches.id, launchAgencies.launchId))
       .where(where)
       .orderBy(desc(launches.net))
       .limit(clampedPageSize)
       .offset(offset),
-    db.select({ value: count() }).from(launches).where(where),
+    db.select({ value: count() }).from(launchAgencies).where(where),
   ]);
 
   return {
@@ -472,8 +512,9 @@ export async function getMoreLaunchesFromAgency(agencyId: string, excludeId: str
       net: launches.net,
       netPrecision: launches.netPrecision,
     })
-    .from(launches)
-    .where(and(eq(launches.agencyId, agencyId), ne(launches.id, excludeId)))
+    .from(launchAgencies)
+    .innerJoin(launches, eq(launches.id, launchAgencies.launchId))
+    .where(and(eq(launchAgencies.agencyId, agencyId), ne(launches.id, excludeId)))
     .orderBy(desc(launches.net))
     .limit(limit);
 }

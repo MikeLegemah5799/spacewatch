@@ -11,7 +11,13 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { StatusPill } from "@/components/status-pill";
 import { getLaunchBySlug, getMoreLaunchesFromAgency } from "@/lib/db/queries";
-import { formatFullDateTime, formatNet, formatSite, getMissionName } from "@/lib/format";
+import {
+  formatFullDateTime,
+  formatNet,
+  formatSite,
+  getMissionName,
+  getOperatorName,
+} from "@/lib/format";
 
 interface CoreFact {
   flight: number | null;
@@ -89,6 +95,10 @@ export default async function LaunchDetailPage({
   const moreLaunches = launch.agencyId
     ? await getMoreLaunchesFromAgency(launch.agencyId, launch.id)
     : [];
+  // "More from <X>" means "more launches by the operator specifically"
+  // (that's what getMoreLaunchesFromAgency queried by), not every
+  // stakeholder — see lib/format.ts#getOperatorName.
+  const operatorName = getOperatorName(launch.providerName);
 
   return (
     <AppShell active="Launches">
@@ -115,8 +125,11 @@ export default async function LaunchDetailPage({
           />
 
           <div className="flex items-center gap-3">
+            {/* The hero chip is the operator only — matches the dashboard's
+              * next-launch chip. The full stakeholder list (when there's
+              * more than one) is in Mission Facts' "Provider" row below. */}
             <span className="rounded-md border border-[--accent-stroke] bg-[--accent-fill] px-3 py-1 text-sm text-neon-300">
-              {launch.providerName}
+              {operatorName}
             </span>
             <StatusPill status={launch.status} />
           </div>
@@ -219,7 +232,7 @@ export default async function LaunchDetailPage({
             {moreLaunches.length > 0 && (
               <section>
                 <h2 className="mb-3 font-display text-sm font-semibold uppercase tracking-[0.15em] text-ink">
-                  More from {launch.providerName}
+                  More from {operatorName}
                 </h2>
                 <div className="overflow-hidden rounded-xl border border-line-soft bg-space-850">
                   {moreLaunches.map((row, index) => (

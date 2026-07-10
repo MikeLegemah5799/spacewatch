@@ -14,8 +14,13 @@
 
 import { eq, sql } from "drizzle-orm";
 import { db, syncRuns } from "@/lib/db";
-import { markMissedLaunchesAsHistorical, upsertAgencies, upsertLaunches } from "@/lib/db/queries";
-import { normalizeAgency, normalizeLaunch } from "@/lib/normalize";
+import {
+  markMissedLaunchesAsHistorical,
+  upsertAgencies,
+  upsertLaunchAgencyLinks,
+  upsertLaunches,
+} from "@/lib/db/queries";
+import { normalizeLaunch, normalizeLaunchAgencyLinks, normalizeStakeholderAgencies } from "@/lib/normalize";
 import { fetchUpcomingLaunches } from "@/lib/providers/ll2";
 
 export async function GET(request: Request) {
@@ -32,11 +37,13 @@ export async function GET(request: Request) {
   try {
     const rawLaunches = await fetchUpcomingLaunches(50);
 
-    const agencyRows = rawLaunches.map((launch) => normalizeAgency(launch.launch_service_provider));
+    const agencyRows = rawLaunches.flatMap(normalizeStakeholderAgencies);
     const launchRows = rawLaunches.map((launch) => normalizeLaunch(launch, true));
+    const agencyLinkRows = rawLaunches.flatMap(normalizeLaunchAgencyLinks);
 
     await upsertAgencies(agencyRows);
     const upserted = await upsertLaunches(launchRows);
+    await upsertLaunchAgencyLinks(agencyLinkRows);
     const markedHistorical = await markMissedLaunchesAsHistorical(launchRows.map((launch) => launch.id));
 
     await db

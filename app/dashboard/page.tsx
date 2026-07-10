@@ -5,7 +5,7 @@ import { CountdownTimer } from "@/components/countdown-timer";
 import { StatCard } from "@/components/stat-card";
 import { StatusPill } from "@/components/status-pill";
 import { getDashboardStats, getNextLaunch, getUpcomingLaunches } from "@/lib/db/queries";
-import { formatNet, getMissionName } from "@/lib/format";
+import { formatNet, getMissionName, getOperatorName } from "@/lib/format";
 
 export default async function DashboardPage() {
   const [nextLaunch, stats, upcoming] = await Promise.all([
@@ -38,7 +38,7 @@ export default async function DashboardPage() {
                 </h1>
                 <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
                   <span className="rounded-md border border-[--accent-stroke] bg-[--accent-fill] px-3 py-1 text-neon-300">
-                    {nextLaunch.providerName}
+                    {getOperatorName(nextLaunch.providerName)}
                   </span>
                   {nextLaunch.padLocation && (
                     <span className="flex items-center gap-1.5 text-ink-muted">
