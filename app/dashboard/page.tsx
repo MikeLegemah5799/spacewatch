@@ -32,7 +32,9 @@ export default async function DashboardPage() {
                   NEXT LAUNCH · T-MINUS
                 </div>
                 <h1 className="mt-3 font-display text-3xl font-bold text-ink">
-                  {nextLaunch.rocket} · {getMissionName(nextLaunch.name)}
+                  <Link href={`/launches/${nextLaunch.slug}`} className="hover:text-neon-300">
+                    {nextLaunch.rocket} · {getMissionName(nextLaunch.name)}
+                  </Link>
                 </h1>
                 <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
                   <span className="rounded-md border border-[--accent-stroke] bg-[--accent-fill] px-3 py-1 text-neon-300">
@@ -118,7 +120,9 @@ export default async function DashboardPage() {
                   upcoming.map((launch) => (
                     <tr key={launch.id} className="border-t border-line-faint">
                       <td className="px-6 py-4 text-ink-row">
-                        {getMissionName(launch.name)}
+                        <Link href={`/launches/${launch.slug}`} className="hover:text-neon-300">
+                          {getMissionName(launch.name)}
+                        </Link>
                       </td>
                       <td className="px-6 py-4 text-neon-400">
                         {launch.providerName}

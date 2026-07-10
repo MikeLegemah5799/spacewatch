@@ -9,8 +9,9 @@ change.
 
 ## Current Goal
 
-- NASA imagery enrichment (`lib/providers/nasa.ts`, `app/api/cron/enrich-nasa`)
-  — the second enrichment pass alongside SpaceX's, per ARCHITECTURE.md §3.
+- `/launches/[slug]` detail page, matching the approved mockup — the
+  route ARCHITECTURE.md §7 always planned but never built, and the only
+  place `launches.enrichment` gets surfaced in the UI.
 
 ## Completed
 
@@ -375,18 +376,84 @@ change.
   after the query/merge refactor, using the same mock-fixture-server
   approach as before. Deleted all seed data afterward.
 
+- **Scoped before building, same pattern as SpaceX/NASA enrichment and the
+  Calendar view**: the mockup's "Booster & Landing" card showed a booster
+  serial number (`B1082.6`) and a named droneship (`A Shortfall of
+  Gravitas`) — neither of which our SpaceX enrichment stores. Both are
+  UUID references (`core`, `landpad`) that would need *additional*
+  per-launch API calls to resolve into human-readable names, against an
+  API that's fully offline. Asked before building; user chose to show
+  only what's already in hand (flight number, landing attempt/success/
+  type, booster reuse) and add fairing reuse — free, since it's already
+  in the single payload the client fetches, just wasn't parsed before.
+  Skipped booster serial and droneship name entirely rather than
+  showing empty/fake rows.
+- Verified `mission.type` (LL2's field, e.g. "Communications," "Test
+  Flight") is real and consistently populated via a live dev-mirror
+  check, before adding it to the schema — it backs the subtitle's second
+  segment ("Falcon 9 · Resupply"). The mockup showed a *third* segment
+  (a spacecraft name, "Cargo Dragon") that LL2 doesn't reliably expose
+  per launch; decided on my own to drop that segment rather than invent
+  a shaky data source for it, since it's a much smaller gap than the
+  booster/landing one and didn't seem worth a second question.
+- `lib/db/schema.ts` — added `launches.missionType` (migration
+  `drizzle/0002_*.sql`).
+- `lib/providers/spacex.ts` — added `fairings` parsing (`reused`,
+  `recovery_attempt`, `recovered`) from the same payload
+  `fetchSpacexLaunch` already receives; `lib/normalize.ts` includes it in
+  the enrichment shape.
+- `lib/db/queries.ts` — `getLaunchBySlug`, `getMoreLaunchesFromAgency`
+  (the "More from Provider" sidebar list, newest-first, excluding the
+  current launch). Added `slug` to every launch-list query whose rows
+  get linked to the detail page (dashboard, schedule list/calendar,
+  `/launches`, agency detail) — six call sites.
+- **Real bug found and fixed via testing, not assumption**: built the
+  route as `/launches/[id]` first, matching ARCHITECTURE.md §7 verbatim.
+  It 404'd. Isolated with a minimal reproduction (`id = "a:b"`) before
+  concluding anything: a colon in a dynamic route segment 404s in this
+  Next.js/Turbopack setup, in both raw and percent-encoded form — not an
+  encoding bug on my end, a real router limitation. Our internal `id` is
+  `"<source>:<externalId>"`, so this wasn't a one-off. Switched the whole
+  route to `/launches/[slug]` instead (renamed the directory, the query
+  function, and every linking call site) — `slug` was already unique and
+  colon-free, so this sidesteps the bug rather than working around it.
+- `app/launches/[slug]/page.tsx` — new. Hero (provider chip, status,
+  title, rocket/mission-type subtitle, full date/time, pad location,
+  decorative rocket icon), Mission description (with a placeholder for
+  the ~100% of launches with none yet, matching current real data),
+  Booster & Landing (only rendered when `enrichment.cores` exists — i.e.
+  never yet, given the SpaceX situation; handles multi-core Falcon Heavy
+  launches by rendering one block per core, not just the first), More
+  From `<Provider>`, and a Mission Facts sidebar including a computed
+  "Data source" (LL2 / LL2 + SpaceX / LL2 + NASA / all three, based on
+  which enrichment keys are actually present — not hardcoded). Webcast
+  button only renders when `webcastUrl` exists; "Add to watchlist" is an
+  inert placeholder (no auth exists), same treatment as the Calendar
+  toggle before it was real.
+- Also wired mission names into links across the app — dashboard,
+  `/launches`, `/schedule` (both List and Calendar), and agency
+  detail — since a detail page nothing links to is undiscoverable.
+- `lib/format.ts#formatFullDateTime` — the detail page's full date+time,
+  precision-aware like `formatNet` but spelled out ("Jun 21, 2026 ·
+  14:32 UTC") rather than terse, for a page where there's room for it.
+- Verified end to end: seeded a fully-populated launch (SpaceX
+  enrichment with cores + fairings, mission description, webcast,
+  siblings for "More from SpaceX") and a minimal one (no enrichment, no
+  description, no webcast, no pad) — screenshotted both; the minimal one
+  correctly omitted every optional section/row rather than showing
+  blanks. Confirmed the colon-routing fix with a real click-through test
+  (Playwright clicking the actual rendered link on `/launches`, not just
+  hitting the URL directly) — landed on the right page with the right
+  data. Confirmed 404 for an unknown slug. Deleted all seed data
+  afterward.
+
 ## In Progress
 
-- None — this unit (NASA imagery enrichment) is complete and verified
-  end to end.
+- None — this unit (`/launches/[slug]` detail page) is complete and
+  verified end to end.
 
 ## Next Up
 
-- No UI anywhere surfaces `launches.enrichment` yet — there's no launch
-  detail page at all (`/launches/[id]` is in ARCHITECTURE.md §7's
-  project structure but was never built; `/launches` is list-only so
-  far). Enrichment data will sit unused in the database until that page
-  exists.
 - A launch whose NET passes but LL2 is slow to drop it from
   `/upcoming/` (or that schedule-sync's own fetch window doesn't cover)
   won't get flipped until the *next* schedule-sync run notices it's
@@ -412,6 +479,23 @@ change.
   unit, rather than continuing to treat it as a one-off simplification.
 
 ## Architecture Decisions
+
+- Launch detail is routed by `launches.slug`, not `launches.id` — a
+  reversal of the original plan (`ARCHITECTURE.md` §7 said `[id]`,
+  and `lib/normalize.ts` had a comment saying as much). Forced by a real,
+  reproduced router limitation (colons in a dynamic segment 404), but
+  also just better practice: slugs exist precisely to be URL-safe, so
+  routing by them instead of an opaque `source:externalId` string is the
+  right call independent of the bug that surfaced it.
+- SpaceX enrichment's `enrichment.cores` is an array, not a single
+  object, so the detail page renders one "Booster & Landing" block per
+  core — Falcon Heavy's 3-core launches get 3 blocks, not just the
+  first core silently dropped.
+- "Data source" on the detail page is computed from which enrichment
+  keys are actually present (`cores` → SpaceX, truthy `nasaImage` →
+  NASA), not hardcoded per launch — stays correct automatically as
+  enrichment coverage changes over time, including if the SpaceX API
+  ever comes back online.
 
 - NASA imagery enrichment searches by mission name for *every* launch,
   not just NASA-agency ones — deliberately, per user decision, rather

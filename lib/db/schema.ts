@@ -109,6 +109,7 @@ export const launches = pgTable(
     imageUrl: text("image_url"),
     webcastUrl: text("webcast_url"),
     missionDescription: text("mission_description"),
+    missionType: text("mission_type"), // "Communications", "Test Flight", ... (LL2 `mission.type`)
     orbit: text("orbit"), // "LEO", "GTO"
 
     /**

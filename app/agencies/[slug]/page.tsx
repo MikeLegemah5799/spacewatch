@@ -86,7 +86,11 @@ export default async function AgencyDetailPage({
                 ) : (
                   launchesPage.launches.map((launch) => (
                     <tr key={launch.id} className="border-t border-line-faint">
-                      <td className="px-6 py-4 text-ink-row">{getMissionName(launch.name)}</td>
+                      <td className="px-6 py-4 text-ink-row">
+                        <Link href={`/launches/${launch.slug}`} className="hover:text-neon-300">
+                          {getMissionName(launch.name)}
+                        </Link>
+                      </td>
                       <td className="px-6 py-4 font-mono text-ink-soft">
                         {formatNet(launch.net, launch.netPrecision)}
                       </td>

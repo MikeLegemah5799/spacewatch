@@ -27,10 +27,17 @@ export interface SpaceXCore {
   landing_type: string | null;
 }
 
+export interface SpaceXFairings {
+  reused: boolean | null;
+  recovery_attempt: boolean | null;
+  recovered: boolean | null;
+}
+
 export interface SpaceXLaunch {
   id: string;
   success: boolean | null;
   cores: SpaceXCore[];
+  fairings: SpaceXFairings | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -48,6 +55,19 @@ function parseCore(raw: unknown): SpaceXCore | null {
     landing_attempt: typeof raw.landing_attempt === "boolean" ? raw.landing_attempt : null,
     landing_success: typeof raw.landing_success === "boolean" ? raw.landing_success : null,
     landing_type: typeof raw.landing_type === "string" ? raw.landing_type : null,
+  };
+}
+
+/** `fairings` is `null` on the raw launch (not an empty object) for
+ * launches with no fairing at all (e.g. Dragon missions) — distinct from
+ * "fairing present, reuse unknown," which is `{ reused: null, ... }`. */
+function parseFairings(raw: unknown): SpaceXFairings | null {
+  if (!isRecord(raw)) return null;
+
+  return {
+    reused: typeof raw.reused === "boolean" ? raw.reused : null,
+    recovery_attempt: typeof raw.recovery_attempt === "boolean" ? raw.recovery_attempt : null,
+    recovered: typeof raw.recovered === "boolean" ? raw.recovered : null,
   };
 }
 
@@ -70,6 +90,7 @@ export async function fetchSpacexLaunch(spacexApiId: string): Promise<SpaceXLaun
       id: body.id,
       success: typeof body.success === "boolean" ? body.success : null,
       cores: body.cores.map(parseCore).filter((core): core is SpaceXCore => core !== null),
+      fairings: parseFairings(body.fairings),
     };
   } catch {
     return null;

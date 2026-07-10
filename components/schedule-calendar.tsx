@@ -110,14 +110,15 @@ export function ScheduleCalendar({
               {(byDay.get(day) ?? []).slice(0, MAX_CHIPS_PER_DAY).map((launch) => {
                 const config = STATUS_CONFIG[launch.status];
                 return (
-                  <span
+                  <Link
                     key={launch.id}
+                    href={`/launches/${launch.slug}`}
                     title={getMissionName(launch.name)}
-                    className={`truncate rounded-md border px-2 py-1 text-xs ${config.textClass}`}
+                    className={`truncate rounded-md border px-2 py-1 text-xs hover:opacity-80 ${config.textClass}`}
                     style={{ borderColor: `var(${config.borderVar})` }}
                   >
                     {getMissionName(launch.name)}
-                  </span>
+                  </Link>
                 );
               })}
               {(byDay.get(day)?.length ?? 0) > MAX_CHIPS_PER_DAY && (

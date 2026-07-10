@@ -15,6 +15,13 @@
       "when": 1783692984681,
       "tag": "0001_motionless_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783707014580,
+      "tag": "0002_jittery_red_ghost",
+      "breakpoints": true
     }
   ]
 }

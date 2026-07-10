@@ -35,6 +35,44 @@ export function formatNet(
   }
 }
 
+/** Full date + time for the launch detail page — `formatNet` is
+ * deliberately terse (table cells); this spells out the date and, for
+ * precise launches, the UTC time, matching the precision buckets. */
+export function formatFullDateTime(net: Date | null, precision: Launch["netPrecision"]): string {
+  if (!net) return "Date TBD";
+
+  switch (precision) {
+    case "year":
+      return net.getUTCFullYear().toString();
+    case "quarter":
+      return `Q${Math.floor(net.getUTCMonth() / 3) + 1} ${net.getUTCFullYear()}`;
+    case "month":
+      return net.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+    case "day":
+      return net.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+    default: {
+      const date = net.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+      const time = net.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: "UTC",
+      });
+      return `${date} · ${time} UTC`;
+    }
+  }
+}
+
 /**
  * LL2's `pad.location.name` is a full descriptive string (e.g. "Cape
  * Canaveral SFS, FL, USA"); the schedule table wants the short, colloquial
