@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { StatusPill } from "@/components/status-pill";
 import type { ScheduleLaunchRow } from "@/lib/db/queries";
 import { formatNet, formatSite, getMissionName } from "@/lib/format";
@@ -80,7 +81,11 @@ export function ScheduleList({ rows }: { rows: ScheduleLaunchRow[] }) {
                     <td className="px-6 py-4 font-mono text-ink-soft">
                       {formatNet(row.net, row.netPrecision)}
                     </td>
-                    <td className="px-6 py-4 text-ink-row">{getMissionName(row.name)}</td>
+                    <td className="px-6 py-4 text-ink-row">
+                      <Link href={`/launches/${row.slug}`} className="hover:text-neon-300">
+                        {getMissionName(row.name)}
+                      </Link>
+                    </td>
                     <td className="px-6 py-4 text-neon-400">{row.providerName}</td>
                     <td className="px-6 py-4 text-ink-soft">{formatSite(row.padLocation)}</td>
                     <td className="px-6 py-4 text-right">

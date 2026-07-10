@@ -42,6 +42,7 @@ export interface LL2Mission {
   id: number;
   name: string;
   description: string | null;
+  type: string | null;
   orbit: LL2Orbit | null;
 }
 

@@ -126,6 +126,7 @@ export function normalizeLaunch(raw: LL2Launch, isUpcoming: boolean): NewLaunch 
     imageUrl: raw.image,
     webcastUrl: raw.vidURLs[0]?.url ?? null,
     missionDescription: raw.mission?.description ?? null,
+    missionType: raw.mission?.type ?? null,
     orbit: orbitAbbrev,
     searchText: [raw.name, raw.mission?.description].filter(Boolean).join(" "),
   };
@@ -134,14 +135,25 @@ export function normalizeLaunch(raw: LL2Launch, isUpcoming: boolean): NewLaunch 
 /**
  * Maps a SpaceX API v4 launch into the `launches.enrichment` JSONB shape.
  * Deliberately narrow — just the fields ARCHITECTURE.md §3 calls out
- * (cores, booster reuse, landing outcomes), not the full payload (imagery/
- * press links are out of scope for this pass; see NASA enrichment).
+ * (cores, booster reuse, landing outcomes) plus fairing reuse (free —
+ * already in the payload this fetches, just not parsed before). Does
+ * NOT include booster serial numbers or landing site names: those are
+ * UUID references (`core`, `landpad`) needing additional per-launch API
+ * calls against an API that's currently fully offline — not worth
+ * chasing until/unless it comes back (see progress-tracker.md).
  */
 export function normalizeSpacexEnrichment(raw: SpaceXLaunch): Record<string, unknown> {
   return {
     source: "spacex-api-v4",
     fetchedAt: new Date().toISOString(),
     success: raw.success,
+    fairings: raw.fairings
+      ? {
+          reused: raw.fairings.reused,
+          recoveryAttempt: raw.fairings.recovery_attempt,
+          recovered: raw.fairings.recovered,
+        }
+      : null,
     cores: raw.cores.map((core) => ({
       flight: core.flight,
       reused: core.reused,

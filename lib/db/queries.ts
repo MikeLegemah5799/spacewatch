@@ -2,7 +2,7 @@
  * Ingestion upsert  —  the shape lib/providers + normalize feed into
  * ================================================================== */
 
-import { and, asc, count, desc, eq, gte, isNotNull, lt, lte, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, lt, lte, ne, notInArray, sql } from "drizzle-orm";
 import { agencies, db, launches, type NewAgency, type NewLaunch } from "@/lib/db";
 
 export async function upsertAgencies(rows: NewAgency[]) {
@@ -98,6 +98,7 @@ export async function getNextLaunch() {
   const [row] = await db
     .select({
       id: launches.id,
+      slug: launches.slug,
       name: launches.name,
       rocket: launches.rocket,
       providerName: launches.providerName,
@@ -119,6 +120,7 @@ export async function getUpcomingLaunches(limit = 4) {
   return db
     .select({
       id: launches.id,
+      slug: launches.slug,
       name: launches.name,
       providerName: launches.providerName,
       net: launches.net,
@@ -229,6 +231,7 @@ export async function getLaunchesPage(params: LaunchesQuery = {}) {
     db
       .select({
         id: launches.id,
+        slug: launches.slug,
         name: launches.name,
         providerName: launches.providerName,
         rocket: launches.rocket,
@@ -266,6 +269,7 @@ export async function getScheduleLaunches() {
   return db
     .select({
       id: launches.id,
+      slug: launches.slug,
       name: launches.name,
       providerName: launches.providerName,
       net: launches.net,
@@ -289,6 +293,7 @@ export async function getScheduleLaunchesForMonth(year: number, month: number) {
   return db
     .select({
       id: launches.id,
+      slug: launches.slug,
       name: launches.name,
       providerName: launches.providerName,
       net: launches.net,
@@ -365,6 +370,7 @@ export async function getAgencyLaunchesPage(agencyId: string, page = 1, pageSize
     db
       .select({
         id: launches.id,
+        slug: launches.slug,
         name: launches.name,
         net: launches.net,
         netPrecision: launches.netPrecision,
@@ -435,5 +441,39 @@ export async function getLaunchesNeedingNasaImageCheck(limit = 50) {
     .select({ id: launches.id, name: launches.name })
     .from(launches)
     .where(sql`not jsonb_exists(coalesce(${launches.enrichment}, '{}'::jsonb), 'nasaImageCheckedAt')`)
+    .limit(limit);
+}
+
+/* ==================================================================
+ * Launch detail  —  app/launches/[slug]/page.tsx
+ * ------------------------------------------------------------------
+ * Routed by `slug`, not the internal `id` — the id is
+ * "<source>:<externalId>" (e.g. "ll2:a1b2c3"), and a colon in a dynamic
+ * route segment 404s in this Next.js/Turbopack setup regardless of
+ * percent-encoding (reproduced with a minimal "a:b" test case before
+ * concluding this, not assumed). `slug` was already unique and
+ * colon-free, so routing by it sidesteps the issue entirely rather than
+ * working around it.
+ * ================================================================== */
+
+export async function getLaunchBySlug(slug: string) {
+  const [row] = await db.select().from(launches).where(eq(launches.slug, slug)).limit(1);
+  return row ?? null;
+}
+
+/** Other launches from the same agency, most recent first, excluding
+ * the current one — the "More from <Provider>" sidebar list. */
+export async function getMoreLaunchesFromAgency(agencyId: string, excludeId: string, limit = 5) {
+  return db
+    .select({
+      id: launches.id,
+      slug: launches.slug,
+      name: launches.name,
+      net: launches.net,
+      netPrecision: launches.netPrecision,
+    })
+    .from(launches)
+    .where(and(eq(launches.agencyId, agencyId), ne(launches.id, excludeId)))
+    .orderBy(desc(launches.net))
     .limit(limit);
 }
