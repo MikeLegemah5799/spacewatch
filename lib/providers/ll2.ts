@@ -88,6 +88,11 @@ export interface LL2Launch {
   pad: LL2Pad | null;
   image: string | null;
   vidURLs: LL2VidURL[];
+  /** Cross-reference to the archived SpaceX API v4's launch id, when LL2
+   * has one on file. In current real data this is null even for launches
+   * confirmed to exist in the SpaceX API's own docs — see
+   * lib/providers/spacex.ts and progress-tracker.md. */
+  r_spacex_api_id: string | null;
 }
 
 interface LL2ListResponse<T> {

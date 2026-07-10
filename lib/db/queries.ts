@@ -2,7 +2,7 @@
  * Ingestion upsert  —  the shape lib/providers + normalize feed into
  * ================================================================== */
 
-import { and, asc, count, desc, eq, gte, isNotNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import { agencies, db, launches, type NewAgency, type NewLaunch } from "@/lib/db";
 
 export async function upsertAgencies(rows: NewAgency[]) {
@@ -43,6 +43,7 @@ export async function upsertLaunches(rows: NewLaunch[]) {
       set: {
         name: sql`excluded.name`,
         status: sql`excluded.status`,
+        spacexApiId: sql`excluded.spacex_api_id`,
         net: sql`excluded.net`,
         netPrecision: sql`excluded.net_precision`,
         windowStart: sql`excluded.window_start`,
@@ -341,4 +342,26 @@ export async function getAgencyLaunches(agencyId: string, limit = 20) {
     .where(eq(launches.agencyId, agencyId))
     .orderBy(desc(launches.net))
     .limit(limit);
+}
+
+/* ==================================================================
+ * SpaceX enrichment pass  —  app/api/cron/enrich/route.ts
+ * ================================================================== */
+
+/** Launches with a SpaceX API cross-reference we haven't enriched yet.
+ * Currently this is every launch with `spacexApiId` set, since that field
+ * is null in all real LL2 data observed so far — see schema.ts. */
+export async function getLaunchesNeedingSpacexEnrichment(limit = 20) {
+  return db
+    .select({ id: launches.id, spacexApiId: launches.spacexApiId })
+    .from(launches)
+    .where(and(isNotNull(launches.spacexApiId), isNull(launches.enrichment)))
+    .limit(limit);
+}
+
+export async function setLaunchEnrichment(id: string, enrichment: Record<string, unknown>) {
+  await db
+    .update(launches)
+    .set({ enrichment, updatedAt: sql`now()` })
+    .where(eq(launches.id, id));
 }

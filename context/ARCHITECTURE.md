@@ -52,7 +52,7 @@ npx create-next-app@latest space-watch --typescript --tailwind --eslint --app --
 | Source | Role | Status |
 |---|---|---|
 | **Launch Library 2** (`ll.thespacedevs.com`) | **Primary.** Upcoming + historical launches across all providers, including SpaceX and NASA, in one schema. | Active. Free tier is heavily rate-limited (~15 req/hour anonymous), which drives the ingest-and-store design. |
-| **SpaceX API v4** (`api.spacexdata.com/v4`) | Supplementary enrichment for SpaceX-specific detail (cores, booster reuse, landings). | **Archived (read-only since June 2026).** Endpoints still respond but receive no new data. Treat as a best-effort backfill only. |
+| **SpaceX API v4** (`api.spacexdata.com/v4`) | Supplementary enrichment for SpaceX-specific detail (cores, booster reuse, landings). | **Fully offline**, not just read-only: every endpoint currently returns a Cloudflare 525 (origin unreachable), and LL2's cross-reference field (`r_spacex_api_id`) has been observed null on every launch checked, including ones confirmed to exist in the SpaceX API's own docs. The enrichment pass is built and correct, but enriches nothing today — see progress-tracker.md. |
 | **NASA API** (`api.nasa.gov`) | Imagery enrichment (e.g. APOD, mission imagery). | Active. Requires a free API key. |
 
 ### Decision: Launch Library 2 is the single source of truth
@@ -79,8 +79,11 @@ only. Neither is on the critical path.
 - Ingestion is split by cadence: a **schedule sync** every ~15 minutes over the
   upcoming window, and a **historical backfill** run daily, paginated and
   resumable so a rate-limit stall can pick back up where it stopped.
-- If the archived SpaceX endpoints eventually go dark, the app degrades to
-  LL2-only detail and keeps working — no migration required.
+- If the archived SpaceX endpoints go dark, the app degrades to LL2-only
+  detail and keeps working — no migration required. This is no longer
+  hypothetical: as of this writing the endpoints are unreachable and the
+  correlation field is unpopulated, so the enrichment pass currently
+  enriches zero launches by design, not by bug.
 
 ---
 
@@ -120,9 +123,11 @@ No user request ever reaches an upstream API.
 
 ## 5. Rendering strategy
 
+There is no marketing landing page — `/` redirects straight to `/dashboard`,
+which is the app's entry point.
+
 | Surface | Rendering | Why |
-|---|---|---|
-| Landing | Static | Marketing content, no data dependency. |
+| --- | --- | --- |
 | Dashboard (next launch + stats) | RSC + Redis (short TTL) | Needs freshness for countdown/status, but values are precomputed by cron. |
 | Schedule (upcoming) | RSC, revalidated | Changes on the ingestion cadence, not per request. |
 | Launches (historical browse) | RSC + cached, ISR-style revalidation | Large, slow-changing dataset. |
@@ -178,7 +183,7 @@ field mapping lives; everything downstream consumes `Launch`.
 ```
 space-watch/
 ├─ app/
-│  ├─ page.tsx                    # landing
+│  ├─ page.tsx                    # redirects to /dashboard (no marketing landing page)
 │  ├─ dashboard/page.tsx          # overview + next-launch hero (RSC)
 │  ├─ launches/
 │  │  ├─ page.tsx                 # historical browse + filters

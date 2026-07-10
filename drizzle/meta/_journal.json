@@ -8,6 +8,13 @@
       "when": 1783646855443,
       "tag": "0000_great_night_thrasher",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783692984681,
+      "tag": "0001_motionless_deathstrike",
+      "breakpoints": true
     }
   ]
 }

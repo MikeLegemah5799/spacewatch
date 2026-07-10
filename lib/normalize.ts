@@ -5,6 +5,7 @@
 
 import type { Launch, NewAgency, NewLaunch } from "@/lib/db";
 import type { LL2Agency, LL2Launch } from "@/lib/providers/ll2";
+import type { SpaceXLaunch } from "@/lib/providers/spacex";
 
 /**
  * LL2 status id -> our unified status. LL2 draws finer distinctions
@@ -110,6 +111,7 @@ export function normalizeLaunch(raw: LL2Launch, isUpcoming: boolean): NewLaunch 
       raw.launch_service_provider.abbrev,
     ),
     rocket: raw.rocket.configuration.name,
+    spacexApiId: raw.r_spacex_api_id,
     net: raw.net ? new Date(raw.net) : null,
     netPrecision: raw.net_precision ? (NET_PRECISION_MAP[raw.net_precision.id] ?? "year") : "year",
     windowStart: raw.window_start ? new Date(raw.window_start) : null,
@@ -125,5 +127,28 @@ export function normalizeLaunch(raw: LL2Launch, isUpcoming: boolean): NewLaunch 
     missionDescription: raw.mission?.description ?? null,
     orbit: orbitAbbrev,
     searchText: [raw.name, raw.mission?.description].filter(Boolean).join(" "),
+  };
+}
+
+/**
+ * Maps a SpaceX API v4 launch into the `launches.enrichment` JSONB shape.
+ * Deliberately narrow — just the fields ARCHITECTURE.md §3 calls out
+ * (cores, booster reuse, landing outcomes), not the full payload (imagery/
+ * press links are out of scope for this pass; see NASA enrichment).
+ */
+export function normalizeSpacexEnrichment(raw: SpaceXLaunch): Record<string, unknown> {
+  return {
+    source: "spacex-api-v4",
+    fetchedAt: new Date().toISOString(),
+    success: raw.success,
+    cores: raw.cores.map((core) => ({
+      flight: core.flight,
+      reused: core.reused,
+      gridfins: core.gridfins,
+      legs: core.legs,
+      landingAttempt: core.landing_attempt,
+      landingSuccess: core.landing_success,
+      landingType: core.landing_type,
+    })),
   };
 }

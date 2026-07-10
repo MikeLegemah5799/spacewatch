@@ -9,8 +9,8 @@ change.
 
 ## Current Goal
 
-- The `/schedule` Calendar view, matching the approved mockup — resolves
-  the "what should Calendar be" open question from the prior unit.
+- SpaceX enrichment pass (`lib/providers/spacex.ts`, `app/api/cron/enrich`)
+  — cores/booster-reuse/landing data per ARCHITECTURE.md §3.
 
 ## Completed
 
@@ -29,8 +29,9 @@ change.
   de-dupes by id within a batch — see Architecture Decisions).
 - `app/dashboard/page.tsx` — hero + stat grid + upcoming table, matches the
   mockup.
-- `app/page.tsx` redirects to `/dashboard` (no marketing landing content is
-  defined yet — see Open Questions).
+- `app/page.tsx` redirects to `/dashboard` — confirmed final (not a
+  placeholder): there is no marketing landing page in scope, the
+  dashboard is the entry point. `ARCHITECTURE.md` §5/§7 updated to match.
 - `app/launches`, `/schedule`, `/agencies` — placeholder pages using the same
   shell, so nav links resolve instead of 404ing.
 - Added `--color-fail` / `--state-fail` token (see `ui-context.md`) — the
@@ -215,15 +216,83 @@ change.
   toggle refactor didn't regress it. No console errors. Deleted the seed
   data afterward — DB is empty again.
 
+- **Real finding that changed this unit's scope**: the SpaceX API v4
+  (`api.spacexdata.com`) isn't just "archived/read-only" as
+  ARCHITECTURE.md described — every endpoint returns a Cloudflare 525
+  (origin unreachable; confirmed via a successful TLS handshake, so it's
+  not DNS/network on my end, the origin server itself is gone). Worse,
+  the correlation field the architecture's design depended on
+  (`r_spacex_api_id`) is null in every real LL2 response checked — dev
+  mirror, production, and even for **CRS-20**, a mission I confirmed has
+  a real entry in the SpaceX API's own public docs. Flagged this to the
+  user before writing throwaway code; decision was to build it correctly
+  anyway (as designed, effectively dead code today) rather than skip it
+  or rip it out of scope.
+- `lib/db/schema.ts` — added `launches.spacexApiId` (text, nullable,
+  indexed) to store LL2's `r_spacex_api_id` — the correlation key the
+  enrichment pass looks up by. Migration `drizzle/0001_*.sql`. Also added
+  `spacexApiId` to `upsertLaunches`'s `onConflictDoUpdate` set (refreshed
+  from LL2 like any other LL2-owned field, unlike `enrichment` which
+  stays untouched by the LL2 upsert on purpose).
+- `lib/providers/ll2.ts` — added `r_spacex_api_id` to the `LL2Launch`
+  type; passed through in `lib/normalize.ts#normalizeLaunch`.
+- `lib/providers/spacex.ts` — new client. Unlike `ll2.ts`, this one never
+  throws: `fetchSpacexLaunch` returns `null` on any failure (network
+  error, non-200, unexpected shape) so the caller doesn't need its own
+  try/catch to get fail-soft behavior.
+- `lib/normalize.ts` — `normalizeSpacexEnrichment`, mapping a SpaceX API
+  v4 launch into the `enrichment` JSONB shape: `success` plus a curated
+  per-core subset (flight, reused, gridfins, legs, landing attempt/
+  success/type) — not the full payload (imagery/press links are out of
+  scope for this pass).
+- `lib/db/queries.ts` — `getLaunchesNeedingSpacexEnrichment` (rows with
+  `spacexApiId` set and `enrichment` still null, batched at 20),
+  `setLaunchEnrichment` (a targeted single-column update, never touching
+  any LL2-owned field).
+- `app/api/cron/enrich/route.ts` — new cron, separate cadence again. Its
+  `ok` reflects whether the *pass* ran, not whether every launch got
+  enriched — per-launch failures (today, that's all of them) are
+  expected and logged via a `summary` string in `sync_runs.error`. Added
+  to `vercel.json` at `30 3 * * *` (30 min after the daily backfill).
+- Verified end to end, in two parts, since the real API is down:
+  (1) fail-soft path against the actual dead API — seeded one launch
+  with a real `spacexApiId`, ran the route, got `{enriched: 0,
+  attempted: 1}` with no crash and `ok: true`.
+  (2) the parsing/write path — stood up a throwaway local HTTP server
+  serving the exact CRS-20 fixture JSON from the SpaceX API's own public
+  docs, pointed `SPACEX_API_BASE_URL` at it, re-ran the route, and
+  confirmed the DB row's `enrichment` column exactly matched the fixture
+  (flight 2, reused, RTLS landing) — real parsing logic, verified against
+  real (if no longer live) data, not a hand-wavy unit test. Re-ran a
+  third time to confirm an already-enriched row is correctly excluded
+  from the next batch. Deleted all seed data and the mock server
+  afterward.
+- `ARCHITECTURE.md` §3 updated to state the SpaceX API is fully offline
+  (not just read-only) and that the correlation field is unpopulated in
+  practice, so this reads as confirmation of the architecture's own
+  stated fallback ("the app degrades to LL2-only detail...") rather than
+  a contradiction of it.
+
 ## In Progress
 
-- None — this unit (`/schedule` Calendar view) is complete and verified
-  end to end.
+- None — this unit (SpaceX enrichment pass) is complete and verified end
+  to end, within the constraints of a dead upstream API.
 
 ## Next Up
 
-- SpaceX enrichment pass (`lib/providers/spacex.ts`) and NASA imagery
-  (`lib/providers/nasa.ts`) — both fail-soft, neither built yet.
+- NASA imagery enrichment (`lib/providers/nasa.ts`) — not built. Genuinely
+  ambiguous, not just unbuilt: ARCHITECTURE.md says "imagery enrichment
+  (e.g. APOD, mission imagery)," but APOD (NASA's daily astronomy
+  picture) has no inherent connection to a specific launch, and there's
+  no schema field or mapping mechanism defined for it the way SpaceX
+  enrichment had `enrichment` + `r_spacex_api_id`. Needs a scoping
+  decision before implementation, same as the Calendar view did last
+  unit — see Open Questions.
+- No UI anywhere surfaces `launches.enrichment` yet — there's no launch
+  detail page at all (`/launches/[id]` is in ARCHITECTURE.md §7's
+  project structure but was never built; `/launches` is list-only so
+  far). Enrichment data will sit unused in the database until that page
+  exists.
 - Nothing currently flips `launches.isUpcoming` back to `false` once a
   launch's NET passes and LL2 drops it from `/launch/upcoming/`.
   Schedule-sync only ever upserts `isUpcoming: true`; backfill only ever
@@ -243,10 +312,6 @@ change.
 
 ## Open Questions
 
-- No marketing landing page content/design has been specified. `app/page.tsx`
-  currently just redirects to `/dashboard` — confirm whether Space Watch
-  needs a separate static landing page (per ARCHITECTURE.md §7) or whether
-  the dashboard *is* the landing experience for this project.
 - Nav's avatar icon is a generic placeholder (no Auth.js integration yet, per
   ARCHITECTURE.md §2 "Auth (optional)"). Decide when/if that gets built.
 - No `LL2_API_KEY` is configured yet (anonymous tier: ~15 req/hour). Getting
@@ -261,6 +326,13 @@ change.
   Architecture Decision below) — recurring across two mockups now, worth
   deciding whether to join `mission.agencies` in the normalizer as its own
   unit, rather than continuing to treat it as a one-off simplification.
+- What should NASA "imagery enrichment" actually mean for a specific
+  launch row? APOD is a daily picture unrelated to any mission; NASA's
+  API doesn't have an obvious per-launch imagery endpoint the way the
+  SpaceX API has per-launch cores. Options to consider: skip it (LL2
+  already gives every launch an `imageUrl`); use it only for NASA-agency
+  missions specifically; or something else — needs a decision before any
+  code gets written, not an inferred behavior.
 
 ## Architecture Decisions
 

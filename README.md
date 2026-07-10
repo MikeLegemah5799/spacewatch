@@ -23,9 +23,10 @@ talks to LL2; every page reads from Space Watch's own Postgres database.
 - **Agencies** — a directory of launch providers with per-agency stats
   and recent-launch history.
 
-Not yet built (tracked in `context/progress-tracker.md`): a marketing
-landing page, SpaceX/NASA enrichment data (booster reuse, landing
-outcomes, imagery), and an auth-gated personal watchlist.
+Not yet built (tracked in `context/progress-tracker.md`): SpaceX/NASA
+enrichment data (booster reuse, landing outcomes, imagery) and an
+auth-gated personal watchlist. There's no marketing landing page by
+design — `/` redirects straight to `/dashboard`.
 
 ## Tech stack
 

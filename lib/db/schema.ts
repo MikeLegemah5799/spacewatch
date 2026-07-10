@@ -112,6 +112,16 @@ export const launches = pgTable(
     orbit: text("orbit"), // "LEO", "GTO"
 
     /**
+     * Cross-reference to the archived SpaceX API v4's launch id — LL2's
+     * `r_spacex_api_id`, when present. In practice this is currently null
+     * on every launch we've observed (including missions confirmed to
+     * exist in the SpaceX API's own docs), so the enrichment pass this
+     * feeds is effectively dead code until/unless LL2 repopulates it. Kept
+     * as designed rather than removed — see progress-tracker.md.
+     */
+    spacexApiId: text("spacex_api_id"),
+
+    /**
      * Best-effort enrichment from the archived SpaceX API (cores, booster
      * reuse, landing outcome). Schemaless because it fails soft and its
      * shape is frozen — see ARCHITECTURE §3 consequences.
@@ -140,6 +150,8 @@ export const launches = pgTable(
     // Filters.
     index("launches_agency_net_idx").on(t.agencyId, t.net),
     index("launches_status_idx").on(t.status),
+    // SpaceX enrichment pass: find rows with a cross-reference not yet enriched.
+    index("launches_spacex_api_id_idx").on(t.spacexApiId),
 
     // Search.
     index("launches_search_idx").using(
