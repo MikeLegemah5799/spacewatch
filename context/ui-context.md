@@ -29,6 +29,12 @@ CSS custom properties in `globals.css` (Tailwind v4 `@theme`); see
 | Border (accent/hero)    | `--border-accent`  | `#234779` |
 | Success / "GO"          | `--state-success`  | `#34d399` |
 | Warning / "TBD"         | `--state-warning`  | `#fbbf24` |
+| Failure                 | `--state-fail`     | `#f2555f` |
+
+`--state-fail` was not in the original mockup (only GO/TBD appear there) but
+`launches.status` includes `"failure"`, so the dashboard's `StatusPill` needed
+a color for it. Added as `--color-fail` / `--fail-stroke` in `globals.css`,
+same family as the other status tokens.
 
 Additional effects used in the mockup — not colors, but part of the same
 token set:

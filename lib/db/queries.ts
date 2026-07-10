@@ -2,13 +2,13 @@
  * Ingestion upsert  —  the shape lib/providers + normalize feed into
  * ================================================================== */
 
-import { sql } from "drizzle-orm";
-import { db, launches, type NewLaunch } from "@/lib/db";
+import { and, asc, count, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
+import { agencies, db, launches, type NewLaunch } from "@/lib/db";
 
 export async function upsertLaunches(rows: NewLaunch[]) {
   if (rows.length === 0) return 0;
 
-  const res = await db
+  await db
     .insert(launches)
     .values(rows)
     .onConflictDoUpdate({
@@ -35,4 +35,78 @@ export async function upsertLaunches(rows: NewLaunch[]) {
     });
 
   return rows.length;
+}
+
+/* ==================================================================
+ * Dashboard reads  —  app/dashboard/page.tsx
+ * ================================================================== */
+
+export async function getNextLaunch() {
+  const [row] = await db
+    .select({
+      id: launches.id,
+      name: launches.name,
+      rocket: launches.rocket,
+      providerName: launches.providerName,
+      net: launches.net,
+      netPrecision: launches.netPrecision,
+      status: launches.status,
+      padName: launches.padName,
+      padLocation: launches.padLocation,
+    })
+    .from(launches)
+    .where(and(eq(launches.isUpcoming, true), isNotNull(launches.net)))
+    .orderBy(asc(launches.net))
+    .limit(1);
+
+  return row ?? null;
+}
+
+export async function getUpcomingLaunches(limit = 4) {
+  return db
+    .select({
+      id: launches.id,
+      name: launches.name,
+      providerName: launches.providerName,
+      net: launches.net,
+      netPrecision: launches.netPrecision,
+      status: launches.status,
+    })
+    .from(launches)
+    .where(eq(launches.isUpcoming, true))
+    .orderBy(asc(launches.net))
+    .limit(limit);
+}
+
+export async function getDashboardStats() {
+  const [tracked, outcomes, upcoming, agencyTotal] = await Promise.all([
+    db.select({ value: count() }).from(launches),
+    db
+      .select({
+        success: sql<string>`count(*) filter (where ${launches.status} = 'success')`,
+        terminal: sql<string>`count(*) filter (where ${launches.status} in ('success', 'failure'))`,
+      })
+      .from(launches),
+    db
+      .select({ value: count() })
+      .from(launches)
+      .where(
+        and(
+          eq(launches.isUpcoming, true),
+          gte(launches.net, sql`now()`),
+          lte(launches.net, sql`now() + interval '30 days'`),
+        ),
+      ),
+    db.select({ value: count() }).from(agencies),
+  ]);
+
+  const success = Number(outcomes[0]?.success ?? 0);
+  const terminal = Number(outcomes[0]?.terminal ?? 0);
+
+  return {
+    launchesTracked: tracked[0]?.value ?? 0,
+    successRate: terminal > 0 ? (success / terminal) * 100 : null,
+    upcomingIn30Days: upcoming[0]?.value ?? 0,
+    agencyCount: agencyTotal[0]?.value ?? 0,
+  };
 }

@@ -36,17 +36,20 @@
   --color-ink-faint: #4f5a74;  /* table column headers      */
 
   /* Status */
-  --color-go:  #34d399;  /* GO / success / live indicator */
-  --color-tbd: #fbbf24;  /* TBD / pending / warning       */
+  --color-go:   #34d399;  /* GO / success / live indicator */
+  --color-tbd:  #fbbf24;  /* TBD / pending / warning       */
+  --color-fail: #f2555f;  /* FAILURE — not in the original mockup; added to
+                              cover launches.status = 'failure' in the schema */
 
   /* Effects */
   --shadow-glow:  0 0 24px -8px rgba(59, 158, 255, 0.35); /* hero card  */
   --shadow-ring:  0 0 0 1px rgba(59, 158, 255, 0.08);     /* outer card */
 
-  /* Type — three-typeface system: display / body / mono */
-  --font-display: "Orbitron", sans-serif;                              /* wordmark, countdown, section headers, stat numbers */
-  --font-sans:    "Barlow", -apple-system, BlinkMacSystemFont, sans-serif; /* body/UI — replaces Inter */
-  --font-mono:    "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; /* dated/tabular values only */
+  /* Type — three-typeface system: display / body / mono
+     (values come from next/font/google variables set in app/layout.tsx) */
+  --font-display: var(--font-orbitron), sans-serif;                                    /* wordmark, countdown, section headers, stat numbers */
+  --font-sans:    var(--font-barlow), -apple-system, BlinkMacSystemFont, sans-serif;    /* body/UI — replaces Inter */
+  --font-mono:    var(--font-jetbrains-mono), "SF Mono", Menlo, Consolas, monospace;    /* dated/tabular values only */
 }
 
 /* Translucent accent fills used for pills/badges aren't color
@@ -57,5 +60,6 @@
   --accent-stroke: rgba(59, 158, 255, 0.35); /* SpaceX / live pill border */
   --go-stroke:     rgba(52, 211, 153, 0.40);
   --tbd-stroke:    rgba(251, 191, 36, 0.40);
+  --fail-stroke:   rgba(242, 85, 95, 0.40);
   --glow-text:     0 0 18px rgba(59, 158, 255, 0.55); /* countdown text-shadow */
 }
