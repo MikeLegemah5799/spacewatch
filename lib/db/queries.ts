@@ -2,7 +2,7 @@
  * Ingestion upsert  —  the shape lib/providers + normalize feed into
  * ================================================================== */
 
-import { and, asc, count, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, isNull, lt, lte, notInArray, sql } from "drizzle-orm";
 import { agencies, db, launches, type NewAgency, type NewLaunch } from "@/lib/db";
 
 export async function upsertAgencies(rows: NewAgency[]) {
@@ -61,6 +61,31 @@ export async function upsertLaunches(rows: NewLaunch[]) {
         // which is written by a separate, fail-soft pass.
       },
     });
+
+  return rows.length;
+}
+
+/**
+ * Schedule-sync only ever upserts what LL2's `/upcoming/` list currently
+ * contains — it never revisits rows that have quietly dropped off that
+ * list because their NET has passed. This flips those: any LL2-sourced
+ * row still marked `isUpcoming` whose NET is in the past and which isn't
+ * in the batch just fetched has clearly happened. Its actual outcome
+ * (success/failure, replacing whatever non-terminal status LL2 last gave
+ * it) gets corrected later by the backfill cron's catch-up pass — see
+ * ARCHITECTURE.md §3 and progress-tracker.md.
+ */
+export async function markMissedLaunchesAsHistorical(currentUpcomingIds: string[]) {
+  const conditions = [eq(launches.isUpcoming, true), eq(launches.source, "ll2"), lt(launches.net, sql`now()`)];
+  if (currentUpcomingIds.length > 0) {
+    conditions.push(notInArray(launches.id, currentUpcomingIds));
+  }
+
+  const rows = await db
+    .update(launches)
+    .set({ isUpcoming: false, updatedAt: sql`now()` })
+    .where(and(...conditions))
+    .returning({ id: launches.id });
 
   return rows.length;
 }

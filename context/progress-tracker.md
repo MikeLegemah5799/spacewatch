@@ -9,8 +9,10 @@ change.
 
 ## Current Goal
 
-- SpaceX enrichment pass (`lib/providers/spacex.ts`, `app/api/cron/enrich`)
-  — cores/booster-reuse/landing data per ARCHITECTURE.md §3.
+- Fix `isUpcoming` never transitioning: schedule-sync should flip a
+  launch to historical once it drops off LL2's upcoming list, and
+  backfill should catch up newly-completed launches once it's fully
+  drained instead of going permanently idle.
 
 ## Completed
 
@@ -273,10 +275,38 @@ change.
   stated fallback ("the app degrades to LL2-only detail...") rather than
   a contradiction of it.
 
+- `lib/db/queries.ts#markMissedLaunchesAsHistorical` — flips any
+  LL2-sourced row still `isUpcoming: true` whose NET has passed and which
+  isn't in the batch schedule-sync just fetched. Doesn't touch `status`
+  (still whatever non-terminal value LL2 last gave it, e.g. "go") —
+  that's corrected separately by backfill's catch-up pass, once it
+  reaches that launch.
+- `app/api/cron/sync/route.ts` — calls the above after every upsert;
+  response now includes `markedHistorical`.
+- `app/api/cron/backfill/route.ts` — split into two modes. "Drain" is
+  the original resumable full-archive walk, unchanged in behavior.
+  "Catch-up" is new: once a prior run has fully drained (`ok: true` on
+  record), instead of short-circuiting forever, check the first 2 pages
+  of `/launch/previous/` (LL2 orders it newest-first, so this is a
+  generous buffer against a missed daily invocation) and upsert them —
+  picks up genuinely new completions and corrects `status`/`isUpcoming`
+  for anything schedule-sync already flipped but couldn't fully correct.
+  Shares one `ingestPage` helper between both modes now instead of
+  duplicating the fetch/normalize/upsert sequence.
+- Verified end to end against the LL2 dev mirror: (1) seeded a launch
+  marked `isUpcoming: true` with a NET three days in the past and a
+  status of "go" — one schedule-sync call correctly flipped it to
+  `isUpcoming: false` (`status` left as "go", as designed) while leaving
+  all 50 genuinely-upcoming launches from the fetch untouched. (2) ran
+  backfill to a full drain (`mode: "drain"`, `done: true`), then twice
+  more — both correctly took the `"catch-up"` path (100 launches/run,
+  2 pages) rather than short-circuiting, and `sync_runs` shows all three
+  runs recorded distinctly. Deleted seed data afterward.
+
 ## In Progress
 
-- None — this unit (SpaceX enrichment pass) is complete and verified end
-  to end, within the constraints of a dead upstream API.
+- None — this unit (`isUpcoming` transitions + backfill catch-up) is
+  complete and verified end to end.
 
 ## Next Up
 
@@ -293,22 +323,15 @@ change.
   project structure but was never built; `/launches` is list-only so
   far). Enrichment data will sit unused in the database until that page
   exists.
-- Nothing currently flips `launches.isUpcoming` back to `false` once a
-  launch's NET passes and LL2 drops it from `/launch/upcoming/`.
-  Schedule-sync only ever upserts `isUpcoming: true`; backfill only ever
-  upserts `isUpcoming: false`; neither one *transitions* an existing row.
-  In practice a launch will get corrected the first time backfill's
-  pagination reaches it post-completion, but there's a window where a
-  launch that's actually happened still shows as upcoming.
-- Related: once a full backfill completes, there's no mechanism to catch
-  up *newly*-completed launches going forward — the route as built only
-  handles "drain everything once." LL2 orders `/previous/` newest-first,
-  so a small periodic "check the first page or two for anything not yet
-  in our DB" pass is probably the right shape, but that's a distinct
-  behavior from resumable pagination and deliberately not built here.
 - `/agencies/[slug]`'s "Recent Launches" is capped at 20 with no
   pagination — fine while the DB is small, but will need it eventually
   for a prolific agency like SpaceX now that backfill is real.
+- A launch whose NET passes but LL2 is slow to drop it from
+  `/upcoming/` (or that schedule-sync's own fetch window doesn't cover)
+  won't get flipped until the *next* schedule-sync run notices it's
+  missing — a small window, bounded by the ~15-min cadence, not
+  eliminated. Acceptable for now; noting it so it isn't mistaken for a
+  bug later.
 
 ## Open Questions
 
@@ -335,6 +358,19 @@ change.
   code gets written, not an inferred behavior.
 
 ## Architecture Decisions
+
+- Chose to detect "missed" launches (isUpcoming true, NET passed, not in
+  the latest upcoming fetch) inside schedule-sync itself, rather than as
+  a separate process — it's free (the data needed is already in hand
+  from the fetch schedule-sync just did) and immediate (every ~15 min,
+  not once a day). Backfill's catch-up pass is what actually corrects
+  `status` to a terminal outcome; schedule-sync only ever flips
+  `isUpcoming`, since it has no way to know what the outcome was.
+- Backfill's "catch-up" mode checks a fixed 2 pages (100 launches),
+  not a date-bounded window — simpler, and LL2's `/previous/` being
+  strictly newest-first means a fixed page count is already equivalent
+  to a time window in practice, just one that scales naturally with
+  however many launches occur day to day.
 
 - Icons: implemented with `@tabler/icons-react` (SVG React components)
   rather than the `ti ti-*` webfont classes literally named in

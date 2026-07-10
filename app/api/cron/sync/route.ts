@@ -2,9 +2,11 @@
  * app/api/cron/sync/route.ts  —  schedule sync (upcoming window)
  * ------------------------------------------------------------------
  * Runs on a ~15 minute cadence (see vercel.json). Fetches LL2's
- * upcoming-launch list, normalizes it, and upserts. This is the only
- * cadence implemented so far — the daily, paginated, resumable
- * historical backfill (ARCHITECTURE.md §3) is a separate unit.
+ * upcoming-launch list, normalizes it, and upserts. Also flips any
+ * previously-upcoming row that has quietly dropped off that list (its
+ * NET passed) to `isUpcoming: false` — see
+ * lib/db/queries.ts#markMissedLaunchesAsHistorical. The daily, paginated,
+ * resumable historical backfill (ARCHITECTURE.md §3) is a separate unit.
  *
  * The only route allowed to call a third-party launch API — see
  * code-standards.md.
@@ -12,7 +14,7 @@
 
 import { eq, sql } from "drizzle-orm";
 import { db, syncRuns } from "@/lib/db";
-import { upsertAgencies, upsertLaunches } from "@/lib/db/queries";
+import { markMissedLaunchesAsHistorical, upsertAgencies, upsertLaunches } from "@/lib/db/queries";
 import { normalizeAgency, normalizeLaunch } from "@/lib/normalize";
 import { fetchUpcomingLaunches } from "@/lib/providers/ll2";
 
@@ -35,13 +37,14 @@ export async function GET(request: Request) {
 
     await upsertAgencies(agencyRows);
     const upserted = await upsertLaunches(launchRows);
+    const markedHistorical = await markMissedLaunchesAsHistorical(launchRows.map((launch) => launch.id));
 
     await db
       .update(syncRuns)
       .set({ finishedAt: sql`now()`, recordsUpserted: upserted, ok: true })
       .where(eq(syncRuns.id, run.id));
 
-    return Response.json({ ok: true, upserted });
+    return Response.json({ ok: true, upserted, markedHistorical });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
