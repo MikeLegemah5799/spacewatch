@@ -105,8 +105,25 @@ export async function getUpcomingLaunches(limit = 4) {
     .limit(limit);
 }
 
+/** Upcoming launches whose NET falls within the next `days` days. Shared by
+ * the dashboard's "Upcoming · 30d" stat and the schedule page's header. */
+export async function getUpcomingCount(days: number) {
+  const [row] = await db
+    .select({ value: count() })
+    .from(launches)
+    .where(
+      and(
+        eq(launches.isUpcoming, true),
+        gte(launches.net, sql`now()`),
+        lte(launches.net, sql`now() + interval '1 day' * ${days}`),
+      ),
+    );
+
+  return row?.value ?? 0;
+}
+
 export async function getDashboardStats() {
-  const [tracked, outcomes, upcoming, agencyTotal] = await Promise.all([
+  const [tracked, outcomes, upcomingIn30Days, agencyTotal] = await Promise.all([
     db.select({ value: count() }).from(launches),
     db
       .select({
@@ -114,16 +131,7 @@ export async function getDashboardStats() {
         terminal: sql<string>`count(*) filter (where ${launches.status} in ('success', 'failure'))`,
       })
       .from(launches),
-    db
-      .select({ value: count() })
-      .from(launches)
-      .where(
-        and(
-          eq(launches.isUpcoming, true),
-          gte(launches.net, sql`now()`),
-          lte(launches.net, sql`now() + interval '30 days'`),
-        ),
-      ),
+    getUpcomingCount(30),
     db.select({ value: count() }).from(agencies),
   ]);
 
@@ -133,7 +141,7 @@ export async function getDashboardStats() {
   return {
     launchesTracked: tracked[0]?.value ?? 0,
     successRate: terminal > 0 ? (success / terminal) * 100 : null,
-    upcomingIn30Days: upcoming[0]?.value ?? 0,
+    upcomingIn30Days,
     agencyCount: agencyTotal[0]?.value ?? 0,
   };
 }
@@ -220,3 +228,28 @@ export async function getLaunchesPage(params: LaunchesQuery = {}) {
 
 export type LaunchesPageResult = Awaited<ReturnType<typeof getLaunchesPage>>;
 export type LaunchRow = LaunchesPageResult["launches"][number];
+
+/* ==================================================================
+ * Schedule reads  —  app/schedule/page.tsx
+ * ================================================================== */
+
+/** Every upcoming launch, ordered by NET (nulls last). Unlike /launches
+ * there's no pagination — the full schedule is small and mostly static,
+ * revalidated on the ingestion cadence rather than queried per filter. */
+export async function getScheduleLaunches() {
+  return db
+    .select({
+      id: launches.id,
+      name: launches.name,
+      providerName: launches.providerName,
+      net: launches.net,
+      netPrecision: launches.netPrecision,
+      status: launches.status,
+      padLocation: launches.padLocation,
+    })
+    .from(launches)
+    .where(eq(launches.isUpcoming, true))
+    .orderBy(asc(launches.net));
+}
+
+export type ScheduleLaunchRow = Awaited<ReturnType<typeof getScheduleLaunches>>[number];

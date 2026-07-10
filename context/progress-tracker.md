@@ -9,8 +9,8 @@ change.
 
 ## Current Goal
 
-- The `/launches` historical archive: searchable, filterable, paginated
-  table, matching the approved mockup.
+- The `/schedule` page: full upcoming-launch list grouped by month, matching
+  the approved mockup.
 
 ## Completed
 
@@ -77,10 +77,39 @@ change.
   (always fell back to the default 20). Deleted the seed data afterward —
   DB is empty again.
 
+- `lib/format.ts` — `formatSite` (LL2's full "Cape Canaveral SFS, FL, USA"
+  → the schedule table's short "Cape Canaveral"; best-effort, see
+  Architecture Decisions).
+- `lib/db/queries.ts` — `getUpcomingCount(days)` extracted out of
+  `getDashboardStats` (was inlined there) so `/schedule`'s "N launches in
+  the next 30 days" header reuses the exact same computation instead of a
+  second copy of the same `and(...)` condition. `getScheduleLaunches`
+  returns every upcoming launch ordered by NET (nulls last) — no
+  pagination, since ARCHITECTURE.md §5 calls this "RSC, revalidated," not
+  a filtered/paginated view like `/launches`.
+- `app/schedule/page.tsx` — fully a Server Component (no client JS at
+  all): groups launches by calendar month of their `net` value (grouping
+  is by the underlying stored date, not by `netPrecision` — a "Q4"-only
+  launch still falls into whichever month its stored `net` lands in, same
+  as the mockup showed for Artemis III appearing under a normal month
+  header rather than its own "Q4" section), highlights the single
+  soonest-NET row so the "next launch" concept carries over from the
+  dashboard, and renders "List"/"Calendar" as static markup — "Calendar"
+  is inert (no view exists yet, see Architecture Decisions).
+- Verified end to end: seeded 6 upcoming launches spanning 3 different
+  months (including one quarter-precision launch, Artemis III) directly
+  in Neon, screenshotted — month grouping, the accent-vs-muted month
+  header treatment, `formatSite`'s stripping of "SFS"/"SFB" suffixes, and
+  the next-launch row highlight all matched the mockup. First attempt at
+  the highlight used `bg-space-800`, which turned out visually
+  indistinguishable from the table's own `bg-space-850` — switched to
+  `bg-[--accent-fill]` (the same token already used for the SpaceX/live
+  pill) and reverified. Deleted the seed data afterward — DB is empty
+  again.
+
 ## In Progress
 
-- None — this unit (`/launches` historical archive) is complete and
-  verified end to end.
+- None — this unit (`/schedule`) is complete and verified end to end.
 
 ## Next Up
 
@@ -90,11 +119,11 @@ change.
   since schedule-sync only ever writes `isUpcoming: true` rows.
 - SpaceX enrichment pass (`lib/providers/spacex.ts`) and NASA imagery
   (`lib/providers/nasa.ts`) — both fail-soft, neither built yet.
-- `/schedule` (full upcoming list) real implementation, replacing the
-  current placeholder — should be a smaller version of the `/launches`
-  pattern (RSC + one client component), filtered to `isUpcoming = true`
-  instead.
 - `/agencies/[slug]` detail pages.
+- A real Calendar view for `/schedule` — the mockup shows a List/Calendar
+  toggle, but no calendar-view design or behavior is specified anywhere
+  in the context docs. Rendered as an inert, disabled-looking button for
+  now rather than inventing a calendar UI. See Open Questions.
 - Nothing currently flips `launches.isUpcoming` back to `false` once a
   launch's NET passes and LL2 drops it from `/launch/upcoming/` — schedule-
   sync only ever upserts with `isUpcoming: true`. Likely belongs with the
@@ -112,6 +141,14 @@ change.
   one schedule-sync call at a time, but worth getting a free key before the
   15-minute cron is actually deployed, since dev/testing already used up a
   chunk of the hourly quota.
+- What should "Calendar" on `/schedule` actually be? No design/behavior for
+  it exists in any context file, only the toggle button in the mockup.
+- Both the dashboard and schedule mockups show combined provider naming
+  ("NASA · SpaceX") for multi-agency missions, but `providerName` currently
+  only ever holds LL2's single `launch_service_provider` (see the existing
+  Architecture Decision below) — recurring across two mockups now, worth
+  deciding whether to join `mission.agencies` in the normalizer as its own
+  unit, rather than continuing to treat it as a one-off simplification.
 
 ## Architecture Decisions
 
@@ -148,7 +185,13 @@ change.
   (`text-neon-400`), matching the dashboard's table convention, rather
   than the mockup's apparent SpaceX-only highlighting — no rule for
   *which* providers should be highlighted was ever specified, so a
-  consistent treatment for all rows was the safer read.
+  consistent treatment for all rows was the safer read. (Same treatment
+  carried into `/schedule`'s provider column for consistency.)
+- `formatSite` takes everything before the first comma in
+  `pad.location.name` and strips " SFS"/"SFB"/"AFB"/"AFS" suffixes — not a
+  curated per-site lookup, so an unfamiliar site name will just show
+  as-is rather than being shortened to whatever colloquial form a human
+  would pick.
 
 ## Session Notes
 
