@@ -3,7 +3,34 @@
  * ================================================================== */
 
 import { and, asc, count, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
-import { agencies, db, launches, type NewLaunch } from "@/lib/db";
+import { agencies, db, launches, type NewAgency, type NewLaunch } from "@/lib/db";
+
+export async function upsertAgencies(rows: NewAgency[]) {
+  if (rows.length === 0) return 0;
+
+  // A single sync batch has many launches from the same agency, which means
+  // duplicate ids in one INSERT ... VALUES list. Postgres rejects that as
+  // "ON CONFLICT DO UPDATE command cannot affect row a second time", so
+  // de-dupe by id before the batch insert.
+  const uniqueRows = [...new Map(rows.map((row) => [row.id, row])).values()];
+
+  await db
+    .insert(agencies)
+    .values(uniqueRows)
+    .onConflictDoUpdate({
+      target: agencies.id,
+      set: {
+        name: sql`excluded.name`,
+        abbrev: sql`excluded.abbrev`,
+        type: sql`excluded.type`,
+        countryCode: sql`excluded.country_code`,
+        externalId: sql`excluded.external_id`,
+        updatedAt: sql`now()`,
+      },
+    });
+
+  return uniqueRows.length;
+}
 
 export async function upsertLaunches(rows: NewLaunch[]) {
   if (rows.length === 0) return 0;
