@@ -9,9 +9,9 @@ change.
 
 ## Current Goal
 
-- The recurring "NASA · SpaceX" combined-provider question, open since
-  the dashboard unit and touched again by NASA enrichment and the launch
-  detail page — resolve it properly instead of deferring again.
+- Deployment-readiness audit: user is about to deploy to Vercel as a
+  portfolio project. Checked for anything that would break or silently
+  misbehave in production that dev mode wouldn't reveal.
 
 ## Completed
 
@@ -522,18 +522,91 @@ change.
   despite `providerName` now being a combined string. Deleted all data
   afterward — DB is empty again.
 
+- `lib/db/queries.ts#getRecentLaunches` — mirrors `getUpcomingLaunches`
+  exactly (same shape, same limit convention) but for `isUpcoming: false`,
+  newest-first. `app/dashboard/page.tsx` — added a "Recent Launches"
+  section below "Upcoming Launches," same table styling, "View all
+  launches" linking to `/launches` (the "View schedule" link's sibling).
+  Used "Outcome" as the header label (not "Status") — matches
+  `/launches`' own convention for historical rows.
+- Verified end to end: ran the real backfill cron against the LL2 dev
+  mirror, screenshotted the dashboard — the new card correctly shows the
+  4 most recent historical launches (GO/SUCCESS pills, since these are
+  `/previous/`-sourced rows whose status hasn't necessarily been
+  corrected to a terminal outcome yet — same documented behavior as
+  everywhere else), mission links resolve to the right detail pages, "View
+  all launches" points to `/launches`. No console errors. Deleted seed
+  data afterward.
+
+- **Found via a real production build (`npm run build`), not by
+  inspection** — dev mode (`next dev`) always renders fresh, so this
+  class of bug is invisible until you actually build for production:
+  `/dashboard`, `/launches`, and `/agencies` had no dynamic signal
+  (no cookies/headers/searchParams) and no `revalidate`/`dynamic`
+  export, so Next prerendered them once at build time and would have
+  served that frozen snapshot — whatever was in the DB at build time,
+  likely empty — to every visitor forever, never reflecting cron-ingested
+  data without a full redeploy. `/agencies/[slug]` and `/launches/[slug]`
+  were already fine (dynamic route segments default to on-demand
+  rendering without `generateStaticParams`); `/schedule` was already
+  fine too (reads `searchParams`, so it was already dynamic incidentally,
+  not by design).
+- Added `export const revalidate = 60` (dashboard — needs to feel fresh,
+  matches ARCHITECTURE.md §5's "RSC + Redis (short TTL)" intent as an
+  ISR stand-in since Redis isn't built) and `= 300` (launches, agencies —
+  slower-changing, matches §5's "ISR-style revalidation" for the archive).
+  Confirmed via the build's route table before/after: both now show
+  explicit `Revalidate` columns instead of no ISR at all.
+- **Found by checking Vercel's actual docs, not assumed**: `vercel.json`'s
+  `*/15 * * * *` schedule-sync cadence — which was correct per
+  ARCHITECTURE.md §3's original design — **fails deployment outright**
+  on Vercel's Hobby plan ("Hobby accounts are limited to daily cron
+  jobs"). Presented the trade-off before changing anything; user
+  confirmed Hobby, so changed schedule-sync to a valid once-daily time
+  (`0 2 * * *`, staggered an hour before the other three crons, which
+  were already daily). Updated the code comment, `ARCHITECTURE.md` §3/§4,
+  and the README to state this as current reality rather than
+  aspirational design — the ~15-min cadence still needs a Pro-or-higher
+  plan to actually run that often.
+- Caught and fixed a real syntax error I introduced myself while writing
+  that code comment: `` `*/15 * * * *` `` inside a `/* ... */` block
+  comment contains a literal `*/`, closing the comment early — same class
+  of bug as the `enrich-*/route.ts` path mistake from an earlier unit.
+  `tsc`/lint caught it immediately; reworded to avoid the literal
+  sequence instead of escaping it.
+- Refreshed the README, which had drifted since it was first written:
+  added the launch detail page, the agency stakeholder model, and both
+  enrichment routes (none of which existed yet when the README was
+  written) to Features/project-structure; added a "Deploying to Vercel"
+  section (env vars need to be entered in Vercel's dashboard, not read
+  from a pushed file; the Hobby cron caveat; trigger crons manually
+  after first deploy since the DB starts empty).
+- Confirmed `npm run build` (the actual production build, not just
+  `tsc`/`next dev`) succeeds cleanly end to end after all of the above.
+  Noticed the build silently re-encoded `app/favicon.ico` as a side
+  effect (25.9KB → 4.6KB, still valid) — not a change I intended, so
+  reverted it via `git checkout` rather than leaving an unreviewed
+  binary diff sitting in the working tree.
+- Recommended (not done on the user's behalf, since it's their Vercel
+  account): regenerate `CRON_SECRET` for the production environment
+  rather than reusing the local dev value — it's been echoed in many
+  `curl` commands across this session's tool calls/transcripts, so
+  treating it as no-longer-private for production is the safer default.
+
 ## In Progress
 
-- None — this unit (agency stakeholder join table) is complete and
-  verified end to end against real data.
+- None — deployment-readiness audit is complete; all findings addressed
+  or explicitly handed back to the user (Vercel env var entry, CRON_SECRET
+  rotation — both require access I don't have).
 
 ## Next Up
 
 - A launch whose NET passes but LL2 is slow to drop it from
   `/upcoming/` (or that schedule-sync's own fetch window doesn't cover)
   won't get flipped until the *next* schedule-sync run notices it's
-  missing — a small window, bounded by the ~15-min cadence, not
-  eliminated. Acceptable for now; noting it so it isn't mistaken for a
+  missing — a small window, now bounded by whatever cadence is actually
+  configured (daily on Hobby, ~15-min on Pro+), not eliminated. Acceptable
+  for now; noting it so it isn't mistaken for a
   bug later.
 - `upsertLaunchAgencyLinks` never removes a stale link if a launch's
   stakeholder list changes upstream after initial ingestion — additive
@@ -542,6 +615,10 @@ change.
 
 ## Open Questions
 
+- Deploying on Hobby means schedule-sync only runs once/day, not the
+  ~15-min cadence ARCHITECTURE.md §3 originally specified. Fine for a
+  portfolio piece; revisit (upgrade to Pro, tighten `vercel.json`) if this
+  ever needs to feel closer to real-time.
 - Nav's avatar icon is a generic placeholder (no Auth.js integration yet, per
   ARCHITECTURE.md §2 "Auth (optional)"). Decide when/if that gets built.
 - No `LL2_API_KEY` is configured yet (anonymous tier: ~15 req/hour). Getting

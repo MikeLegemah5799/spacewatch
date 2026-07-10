@@ -154,6 +154,26 @@ export async function getUpcomingLaunches(limit = 4) {
     .limit(limit);
 }
 
+/** Most recent historical launches, newest first — the dashboard's
+ * "Recent Launches" preview, mirroring `getUpcomingLaunches` for the past
+ * side. Full browsing/search/filter lives on `/launches`. */
+export async function getRecentLaunches(limit = 4) {
+  return db
+    .select({
+      id: launches.id,
+      slug: launches.slug,
+      name: launches.name,
+      providerName: launches.providerName,
+      net: launches.net,
+      netPrecision: launches.netPrecision,
+      status: launches.status,
+    })
+    .from(launches)
+    .where(eq(launches.isUpcoming, false))
+    .orderBy(desc(launches.net))
+    .limit(limit);
+}
+
 /** Upcoming launches whose NET falls within the next `days` days. Shared by
  * the dashboard's "Upcoming · 30d" stat and the schedule page's header. */
 export async function getUpcomingCount(days: number) {

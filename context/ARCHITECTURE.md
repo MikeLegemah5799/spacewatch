@@ -76,9 +76,13 @@ only. Neither is on the critical path.
 - Request an **LL2 API key** (free). Anonymous access is capped near 15 req/hour,
   which is workable for cron but leaves no headroom for backfill; a key raises the
   ceiling substantially.
-- Ingestion is split by cadence: a **schedule sync** every ~15 minutes over the
-  upcoming window, and a **historical backfill** run daily, paginated and
-  resumable so a rate-limit stall can pick back up where it stopped.
+- Ingestion is split by cadence: a **schedule sync** designed to run every
+  ~15 minutes over the upcoming window, and a **historical backfill** run
+  daily, paginated and resumable so a rate-limit stall can pick back up
+  where it stopped. In practice, both currently run daily — **Vercel's
+  Hobby plan caps all cron jobs at once per day**, and a `*/15 * * * *`
+  schedule fails deployment outright on that plan. The ~15-minute cadence
+  needs a Pro (or higher) plan to actually run as designed.
 - If the archived SpaceX endpoints go dark, the app degrades to LL2-only
   detail and keeps working — no migration required. This is no longer
   hypothetical: as of this writing the endpoints are unreachable and the
@@ -106,8 +110,9 @@ flowchart TD
 ```
 
 1. **Cron triggers ingestion.** Vercel Cron calls `/api/cron/sync` on a fixed
-   cadence (e.g. every ~15 min for the upcoming window, daily for historical
-   backfill).
+   cadence — designed for ~15 min over the upcoming window, daily for
+   historical backfill, though both run daily in practice on a Hobby plan
+   (see §3's consequences).
 2. **Fetch + normalize.** The route pulls from LL2 (and optionally SpaceX/NASA),
    then maps each provider's payload into one unified launch model.
 3. **Upsert.** Normalized records are written to Postgres; derived hot values

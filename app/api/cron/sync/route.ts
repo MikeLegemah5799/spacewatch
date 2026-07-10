@@ -1,8 +1,12 @@
 /* ==================================================================
  * app/api/cron/sync/route.ts  —  schedule sync (upcoming window)
  * ------------------------------------------------------------------
- * Runs on a ~15 minute cadence (see vercel.json). Fetches LL2's
- * upcoming-launch list, normalizes it, and upserts. Also flips any
+ * Runs daily (see vercel.json) — originally designed for a ~15-minute
+ * cadence per ARCHITECTURE.md §3, but Vercel Hobby caps cron jobs at
+ * once a day (a sub-daily schedule fails deployment outright on that
+ * plan). Upgrade to Pro and tighten this schedule for real freshness;
+ * see progress-tracker.md. Fetches LL2's upcoming-launch list, normalizes
+ * it, and upserts. Also flips any
  * previously-upcoming row that has quietly dropped off that list (its
  * NET passed) to `isUpcoming: false` — see
  * lib/db/queries.ts#markMissedLaunchesAsHistorical. The daily, paginated,

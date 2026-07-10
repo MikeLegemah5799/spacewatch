@@ -2,6 +2,11 @@ import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { getAgenciesList } from "@/lib/db/queries";
 
+// Same reasoning as /launches — no dynamic signal, so this would otherwise
+// be frozen at build-time data and never reflect newly-ingested agencies
+// or launch counts.
+export const revalidate = 300;
+
 export default async function AgenciesPage() {
   const agencyRows = await getAgenciesList();
 

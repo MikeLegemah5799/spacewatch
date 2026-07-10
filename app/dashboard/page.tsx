@@ -4,14 +4,23 @@ import { AppShell } from "@/components/app-shell";
 import { CountdownTimer } from "@/components/countdown-timer";
 import { StatCard } from "@/components/stat-card";
 import { StatusPill } from "@/components/status-pill";
-import { getDashboardStats, getNextLaunch, getUpcomingLaunches } from "@/lib/db/queries";
+import { getDashboardStats, getNextLaunch, getRecentLaunches, getUpcomingLaunches } from "@/lib/db/queries";
 import { formatNet, getMissionName, getOperatorName } from "@/lib/format";
 
+// No cookies/headers/searchParams here, so without this Next prerenders the
+// page once at build time and serves that frozen snapshot forever — the
+// live countdown and cron-ingested data would never actually reach a
+// visitor post-deploy. ARCHITECTURE.md §5 calls for "RSC + Redis (short
+// TTL)"; Redis isn't built, so ISR at a short interval is the pragmatic
+// stand-in.
+export const revalidate = 60;
+
 export default async function DashboardPage() {
-  const [nextLaunch, stats, upcoming] = await Promise.all([
+  const [nextLaunch, stats, upcoming, recent] = await Promise.all([
     getNextLaunch(),
     getDashboardStats(),
     getUpcomingLaunches(4),
+    getRecentLaunches(4),
   ]);
 
   return (
@@ -118,6 +127,62 @@ export default async function DashboardPage() {
                   </tr>
                 ) : (
                   upcoming.map((launch) => (
+                    <tr key={launch.id} className="border-t border-line-faint">
+                      <td className="px-6 py-4 text-ink-row">
+                        <Link href={`/launches/${launch.slug}`} className="hover:text-neon-300">
+                          {getMissionName(launch.name)}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 text-neon-400">
+                        {launch.providerName}
+                      </td>
+                      <td className="px-6 py-4 font-mono text-ink-soft">
+                        {formatNet(launch.net, launch.netPrecision)}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <StatusPill status={launch.status} />
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-display text-sm font-semibold tracking-[0.15em] text-ink">
+              RECENT LAUNCHES
+            </h2>
+            <Link
+              href="/launches"
+              className="flex items-center gap-1.5 text-sm text-neon-400 hover:text-neon-300"
+            >
+              View all launches
+              <IconArrowRight size={16} stroke={1.75} />
+            </Link>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-line-soft bg-space-850">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-xs uppercase tracking-widest text-ink-faint">
+                  <th className="px-6 py-3 font-normal">Mission</th>
+                  <th className="px-6 py-3 font-normal">Provider</th>
+                  <th className="px-6 py-3 font-normal">NET</th>
+                  <th className="px-6 py-3 text-right font-normal">Outcome</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-6 text-center text-ink-muted">
+                      No launches recorded yet.
+                    </td>
+                  </tr>
+                ) : (
+                  recent.map((launch) => (
                     <tr key={launch.id} className="border-t border-line-faint">
                       <td className="px-6 py-4 text-ink-row">
                         <Link href={`/launches/${launch.slug}`} className="hover:text-neon-300">
