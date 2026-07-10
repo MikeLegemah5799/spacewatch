@@ -226,4 +226,5 @@ export const watchlistRelations = relations(watchlist, ({ one }) => ({
 export type Launch = typeof launches.$inferSelect;
 export type NewLaunch = typeof launches.$inferInsert;
 export type Agency = typeof agencies.$inferSelect;
+export type NewAgency = typeof agencies.$inferInsert;
 export type SyncRun = typeof syncRuns.$inferSelect;
