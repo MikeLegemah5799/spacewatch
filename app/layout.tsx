@@ -37,6 +37,11 @@ export default function RootLayout({
       className={`${orbitron.variable} ${barlow.variable} ${jetbrainsMono.variable} h-full`}
     >
       <body className="min-h-full flex flex-col bg-void font-sans text-ink antialiased">
+        <div className="sw-starfield" aria-hidden="true">
+          <div className="sw-stars-layer sw-stars-far" />
+          <div className="sw-stars-layer sw-stars-mid" />
+          <div className="sw-stars-layer sw-stars-near" />
+        </div>
         {children}
       </body>
     </html>
