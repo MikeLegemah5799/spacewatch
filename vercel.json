@@ -9,8 +9,12 @@
       "schedule": "0 3 * * *"
     },
     {
-      "path": "/api/cron/enrich",
+      "path": "/api/cron/enrich-spacex",
       "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/enrich-nasa",
+      "schedule": "45 3 * * *"
     }
   ]
 }

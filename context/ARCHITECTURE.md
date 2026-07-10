@@ -53,7 +53,7 @@ npx create-next-app@latest space-watch --typescript --tailwind --eslint --app --
 |---|---|---|
 | **Launch Library 2** (`ll.thespacedevs.com`) | **Primary.** Upcoming + historical launches across all providers, including SpaceX and NASA, in one schema. | Active. Free tier is heavily rate-limited (~15 req/hour anonymous), which drives the ingest-and-store design. |
 | **SpaceX API v4** (`api.spacexdata.com/v4`) | Supplementary enrichment for SpaceX-specific detail (cores, booster reuse, landings). | **Fully offline**, not just read-only: every endpoint currently returns a Cloudflare 525 (origin unreachable), and LL2's cross-reference field (`r_spacex_api_id`) has been observed null on every launch checked, including ones confirmed to exist in the SpaceX API's own docs. The enrichment pass is built and correct, but enriches nothing today — see progress-tracker.md. |
-| **NASA API** (`api.nasa.gov`) | Imagery enrichment (e.g. APOD, mission imagery). | Active. Requires a free API key. |
+| **NASA Image and Video Library** (`images-api.nasa.gov`) | Imagery enrichment: searches by mission name, best-effort. | Active, unauthenticated (no key). Note: this is a different host from the key-gated `api.nasa.gov` (APOD, Mars Photos, ...) this row originally referred to — none of those tie to a specific launch. Coverage is real but narrow: only NASA-affiliated missions return hits (routine commercial launches legitimately return zero), and match precision is rough (top hit by relevance, not guaranteed to be a liftoff photo). See progress-tracker.md. |
 
 ### Decision: Launch Library 2 is the single source of truth
 

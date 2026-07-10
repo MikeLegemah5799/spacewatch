@@ -9,8 +9,8 @@ change.
 
 ## Current Goal
 
-- `/agencies/[slug]` pagination — the "Recent Launches" list was capped
-  at 20 with no way to see older launches.
+- NASA imagery enrichment (`lib/providers/nasa.ts`, `app/api/cron/enrich-nasa`)
+  — the second enrichment pass alongside SpaceX's, per ARCHITECTURE.md §3.
 
 ## Completed
 
@@ -324,21 +324,64 @@ change.
   `getPageWindow` extraction. No console errors. Deleted seed data
   afterward.
 
+- **Researched before building, same pattern as SpaceX**: `api.nasa.gov`
+  (APOD, Mars Photos, DONKI — key-gated) has nothing that ties to a
+  specific launch, contrary to what ARCHITECTURE.md implied. What
+  actually works is the separate, unauthenticated **NASA Image and Video
+  Library** (`images-api.nasa.gov`), confirmed live by real search
+  requests: "Crew-9" → 7,495 hits (crew portraits/announcements, not
+  precisely a liftoff photo); "Starlink Group 10-42" → 0 hits (NASA has
+  no coverage of routine commercial launches, which is most of this
+  app's data). Also found that the missions with the richest coverage
+  (Commercial Crew) have `providerName: "SpaceX"` in our schema, not
+  NASA, since that field reflects the rocket operator, not mission
+  stakeholders — the same underlying gap as the recurring "NASA ·
+  SpaceX" naming question. Presented all of this before writing code;
+  user chose to search every launch and accept the coverage gaps as
+  fail-soft, rather than wait on the `mission.agencies` join.
+- `lib/providers/nasa.ts` — `searchNasaImage(query)`, fails soft like
+  `spacex.ts` (returns `null`, never throws). No auth required.
+- `lib/normalize.ts#normalizeNasaEnrichment` — always sets
+  `nasaImageCheckedAt` (hit or miss), which is what
+  `getLaunchesNeedingNasaImageCheck` looks for — without it, the ~100%
+  of launches with no NASA coverage would get re-searched forever.
+- **Real bug caught while building this, not by accident**: both
+  enrichment passes write to the same `enrichment` JSONB column.
+  `setLaunchEnrichment` (SpaceX's writer) did a blind overwrite — adding
+  a second writer meant whichever pass ran second would silently erase
+  the other's data, and the SpaceX candidate query's `enrichment IS
+  NULL` filter would've falsely treated any NASA-checked launch as
+  already-SpaceX-enriched. Replaced both: `mergeLaunchEnrichment` does
+  an atomic `coalesce(...) || jsonb` merge (using `jsonb_exists(...)`
+  rather than the `?` operator directly, which collides with
+  bind-parameter placeholders in some Postgres drivers), and each
+  candidate query now checks for its own namespaced key (`cores` for
+  SpaceX, `nasaImageCheckedAt` for NASA) instead of "any enrichment at
+  all."
+- `app/api/cron/enrich-nasa/route.ts` — new cron, 50/run, same "`ok`
+  means the pass ran, not that every launch matched" contract as
+  SpaceX's. Renamed the SpaceX route's directory from `enrich` to
+  `enrich-spacex` for symmetry (nothing was deployed yet, so a clean
+  rename cost nothing). Added to `vercel.json` at `45 3 * * *`.
+- Verified end to end against the real, live NASA API (unlike SpaceX,
+  this one actually works): seeded three launches — a real CRS-20 row
+  pre-populated with SpaceX's `cores` data, a NASA-affiliated "Artemis
+  III," and a routine "Starlink Group 99-1." One run: Artemis III got a
+  real image match ("Artemis III Crew Announcement"), Starlink correctly
+  got `nasaImage: null` + a checked timestamp, and — the important part —
+  CRS-20's pre-existing `cores`/`source` keys were untouched by the
+  merge. Re-ran to confirm all three are now excluded from the next
+  batch. Separately reconfirmed the SpaceX pass still works correctly
+  after the query/merge refactor, using the same mock-fixture-server
+  approach as before. Deleted all seed data afterward.
+
 ## In Progress
 
-- None — this unit (`/agencies/[slug]` pagination) is complete and
-  verified end to end.
+- None — this unit (NASA imagery enrichment) is complete and verified
+  end to end.
 
 ## Next Up
 
-- NASA imagery enrichment (`lib/providers/nasa.ts`) — not built. Genuinely
-  ambiguous, not just unbuilt: ARCHITECTURE.md says "imagery enrichment
-  (e.g. APOD, mission imagery)," but APOD (NASA's daily astronomy
-  picture) has no inherent connection to a specific launch, and there's
-  no schema field or mapping mechanism defined for it the way SpaceX
-  enrichment had `enrichment` + `r_spacex_api_id`. Needs a scoping
-  decision before implementation, same as the Calendar view did last
-  unit — see Open Questions.
 - No UI anywhere surfaces `launches.enrichment` yet — there's no launch
   detail page at all (`/launches/[id]` is in ARCHITECTURE.md §7's
   project structure but was never built; `/launches` is list-only so
@@ -367,16 +410,22 @@ change.
   Architecture Decision below) — recurring across two mockups now, worth
   deciding whether to join `mission.agencies` in the normalizer as its own
   unit, rather than continuing to treat it as a one-off simplification.
-- What should NASA "imagery enrichment" actually mean for a specific
-  launch row? APOD is a daily picture unrelated to any mission; NASA's
-  API doesn't have an obvious per-launch imagery endpoint the way the
-  SpaceX API has per-launch cores. Options to consider: skip it (LL2
-  already gives every launch an `imageUrl`); use it only for NASA-agency
-  missions specifically; or something else — needs a decision before any
-  code gets written, not an inferred behavior.
 
 ## Architecture Decisions
 
+- NASA imagery enrichment searches by mission name for *every* launch,
+  not just NASA-agency ones — deliberately, per user decision, rather
+  than waiting on the `mission.agencies` join that would make "is this
+  NASA-affiliated" answerable precisely. Coverage will be uneven (rich
+  for Artemis/Crew missions, zero for routine commercial launches) and
+  match precision rough (top relevance hit, not a curated liftoff photo)
+  as a direct consequence — documented here so a future reader doesn't
+  mistake the gaps for bugs.
+- Both enrichment passes share one `mergeLaunchEnrichment` (atomic jsonb
+  `||`) rather than each having its own update helper — the two passes
+  writing to the same column is exactly the scenario that makes a shared,
+  safe merge primitive worth it instead of two near-identical overwrite
+  functions.
 - Chose to detect "missed" launches (isUpcoming true, NET passed, not in
   the latest upcoming fetch) inside schedule-sync itself, rather than as
   a separate process — it's free (the data needed is already in hand

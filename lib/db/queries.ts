@@ -2,7 +2,7 @@
  * Ingestion upsert  —  the shape lib/providers + normalize feed into
  * ================================================================== */
 
-import { and, asc, count, desc, eq, gte, isNotNull, isNull, lt, lte, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, lt, lte, notInArray, sql } from "drizzle-orm";
 import { agencies, db, launches, type NewAgency, type NewLaunch } from "@/lib/db";
 
 export async function upsertAgencies(rows: NewAgency[]) {
@@ -387,23 +387,53 @@ export async function getAgencyLaunchesPage(agencyId: string, page = 1, pageSize
 }
 
 /* ==================================================================
- * SpaceX enrichment pass  —  app/api/cron/enrich/route.ts
+ * Enrichment passes (SpaceX, NASA)  —  app/api/cron/enrich-spacex,
+ * app/api/cron/enrich-nasa
+ * ------------------------------------------------------------------
+ * Both write into the same `enrichment` JSONB column under their own
+ * namespaced keys, so `mergeLaunchEnrichment` does an atomic jsonb merge
+ * rather than a blind overwrite — otherwise whichever pass runs second
+ * would silently wipe out the other's data. Uses `jsonb_exists(...)`
+ * rather than the `?` jsonb operator directly, since `?` collides with
+ * bind-parameter placeholders in some Postgres drivers/proxies.
  * ================================================================== */
+
+export async function mergeLaunchEnrichment(id: string, partial: Record<string, unknown>) {
+  await db
+    .update(launches)
+    .set({
+      enrichment: sql`coalesce(${launches.enrichment}, '{}'::jsonb) || ${JSON.stringify(partial)}::jsonb`,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(launches.id, id));
+}
 
 /** Launches with a SpaceX API cross-reference we haven't enriched yet.
  * Currently this is every launch with `spacexApiId` set, since that field
- * is null in all real LL2 data observed so far — see schema.ts. */
+ * is null in all real LL2 data observed so far — see schema.ts. Checks
+ * for the `cores` key specifically (not "any enrichment"), since NASA
+ * enrichment writes to the same column under a different key. */
 export async function getLaunchesNeedingSpacexEnrichment(limit = 20) {
   return db
     .select({ id: launches.id, spacexApiId: launches.spacexApiId })
     .from(launches)
-    .where(and(isNotNull(launches.spacexApiId), isNull(launches.enrichment)))
+    .where(
+      and(
+        isNotNull(launches.spacexApiId),
+        sql`not jsonb_exists(coalesce(${launches.enrichment}, '{}'::jsonb), 'cores')`,
+      ),
+    )
     .limit(limit);
 }
 
-export async function setLaunchEnrichment(id: string, enrichment: Record<string, unknown>) {
-  await db
-    .update(launches)
-    .set({ enrichment, updatedAt: sql`now()` })
-    .where(eq(launches.id, id));
+/** Launches never checked for NASA imagery — regardless of outcome. A
+ * miss is recorded via `nasaImageCheckedAt` (see
+ * normalize.ts#normalizeNasaEnrichment) precisely so this doesn't
+ * re-attempt the same non-NASA-affiliated launch forever. */
+export async function getLaunchesNeedingNasaImageCheck(limit = 50) {
+  return db
+    .select({ id: launches.id, name: launches.name })
+    .from(launches)
+    .where(sql`not jsonb_exists(coalesce(${launches.enrichment}, '{}'::jsonb), 'nasaImageCheckedAt')`)
+    .limit(limit);
 }

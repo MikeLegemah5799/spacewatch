@@ -5,6 +5,7 @@
 
 import type { Launch, NewAgency, NewLaunch } from "@/lib/db";
 import type { LL2Agency, LL2Launch } from "@/lib/providers/ll2";
+import type { NasaImageResult } from "@/lib/providers/nasa";
 import type { SpaceXLaunch } from "@/lib/providers/spacex";
 
 /**
@@ -150,5 +151,21 @@ export function normalizeSpacexEnrichment(raw: SpaceXLaunch): Record<string, unk
       landingSuccess: core.landing_success,
       landingType: core.landing_type,
     })),
+  };
+}
+
+/**
+ * Maps a NASA Image Library search result (or a miss) into the
+ * `launches.enrichment` JSONB shape. Always sets `nasaImageCheckedAt` —
+ * that's the marker `getLaunchesNeedingNasaImageCheck` looks for, so a
+ * miss (the common case: most launches have no NASA coverage) doesn't
+ * get re-attempted on every future run.
+ */
+export function normalizeNasaEnrichment(result: NasaImageResult | null): Record<string, unknown> {
+  return {
+    nasaImageCheckedAt: new Date().toISOString(),
+    nasaImage: result
+      ? { title: result.title, url: result.url, dateCreated: result.dateCreated }
+      : null,
   };
 }

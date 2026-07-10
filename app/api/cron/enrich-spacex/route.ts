@@ -1,10 +1,12 @@
 /* ==================================================================
- * app/api/cron/enrich/route.ts  —  SpaceX enrichment pass
+ * app/api/cron/enrich-spacex/route.ts  —  SpaceX enrichment pass
  * ------------------------------------------------------------------
  * A separate, fail-soft pass (ARCHITECTURE.md §3) — distinct from the
- * schedule-sync and backfill crons, and the only route that writes
- * `launches.enrichment`. Per-launch failures (including "the archived
- * API is unreachable," which is the current reality — see
+ * schedule-sync and backfill crons. Writes `launches.enrichment` under
+ * the `cores` key; app/api/cron/enrich-nasa writes the same column
+ * under a different key, via the same merge helper so neither clobbers
+ * the other. Per-launch failures (including "the archived API is
+ * unreachable," which is the current reality — see
  * lib/providers/spacex.ts) are expected and never fail the run: this
  * route's `ok` reflects whether the pass *ran*, not whether every
  * launch got enriched.
@@ -12,7 +14,7 @@
 
 import { eq, sql } from "drizzle-orm";
 import { db, syncRuns } from "@/lib/db";
-import { getLaunchesNeedingSpacexEnrichment, setLaunchEnrichment } from "@/lib/db/queries";
+import { getLaunchesNeedingSpacexEnrichment, mergeLaunchEnrichment } from "@/lib/db/queries";
 import { normalizeSpacexEnrichment } from "@/lib/normalize";
 import { fetchSpacexLaunch } from "@/lib/providers/spacex";
 
@@ -40,7 +42,7 @@ export async function GET(request: Request) {
     const spacexLaunch = await fetchSpacexLaunch(launch.spacexApiId);
     if (!spacexLaunch) continue; // fail soft: log-worthy, not run-fatal
 
-    await setLaunchEnrichment(launch.id, normalizeSpacexEnrichment(spacexLaunch));
+    await mergeLaunchEnrichment(launch.id, normalizeSpacexEnrichment(spacexLaunch));
     enriched++;
   }
 
