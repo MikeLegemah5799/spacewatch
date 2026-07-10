@@ -1,26 +1,61 @@
 @import "tailwindcss";
 
+@theme {
+  /* Outer canvas */
+  --color-void: #06080f;
+
+  /* Surfaces (dark → lighter as the number drops) */
+  --color-space-950: #0a0e1a;  /* app background            */
+  --color-space-900: #0c111e;  /* top bar / browser chrome  */
+  --color-space-850: #0d1322;  /* table panel               */
+  --color-space-800: #0e1424;  /* metric cards              */
+  --color-space-700: #13233f;  /* avatar / chips            */
+
+  /* Hero gradient stops (next-launch card) */
+  --color-hero-from: #0d1830;
+  --color-hero-to:   #0b1326;
+
+  /* Borders / hairlines */
+  --color-line:       #1b2740;  /* default border            */
+  --color-line-soft:  #18233c;  /* card borders              */
+  --color-line-faint: #131c30;  /* table row dividers        */
+  --color-line-blue:  #234779;  /* hero card border          */
+
+  /* Neon-blue accent ramp */
+  --color-neon-200: #7bc0ff;  /* soft / on-accent text     */
+  --color-neon-300: #5bb0ff;  /* bright (countdown, icons) */
+  --color-neon-400: #3b9eff;  /* PRIMARY accent            */
+  --color-neon-500: #2d7ff9;  /* pressed / deeper accent   */
+
+  /* Text */
+  --color-ink:       #eaf0fa;  /* primary headings          */
+  --color-ink-row:   #dbe3f0;  /* table body text           */
+  --color-ink-soft:  #9fb0c8;  /* secondary (NASA·SpaceX)   */
+  --color-ink-muted: #8a96ad;  /* secondary / labels        */
+  --color-ink-dim:   #5c6884;  /* muted captions            */
+  --color-ink-faint: #4f5a74;  /* table column headers      */
+
+  /* Status */
+  --color-go:  #34d399;  /* GO / success / live indicator */
+  --color-tbd: #fbbf24;  /* TBD / pending / warning       */
+
+  /* Effects */
+  --shadow-glow:  0 0 24px -8px rgba(59, 158, 255, 0.35); /* hero card  */
+  --shadow-ring:  0 0 0 1px rgba(59, 158, 255, 0.08);     /* outer card */
+
+  /* Type — three-typeface system: display / body / mono */
+  --font-display: "Orbitron", sans-serif;                              /* wordmark, countdown, section headers, stat numbers */
+  --font-sans:    "Barlow", -apple-system, BlinkMacSystemFont, sans-serif; /* body/UI — replaces Inter */
+  --font-mono:    "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; /* dated/tabular values only */
+}
+
+/* Translucent accent fills used for pills/badges aren't color
+   stops, so expose them as plain vars you can reference with
+   bg-[--accent-fill] etc. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  --accent-fill:   rgba(59, 158, 255, 0.14); /* SpaceX / live pill bg   */
+  --accent-stroke: rgba(59, 158, 255, 0.35); /* SpaceX / live pill border */
+  --go-stroke:     rgba(52, 211, 153, 0.40);
+  --tbd-stroke:    rgba(251, 191, 36, 0.40);
+  --glow-text:     0 0 18px rgba(59, 158, 255, 0.55); /* countdown text-shadow */
 }
