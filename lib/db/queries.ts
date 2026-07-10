@@ -253,3 +253,71 @@ export async function getScheduleLaunches() {
 }
 
 export type ScheduleLaunchRow = Awaited<ReturnType<typeof getScheduleLaunches>>[number];
+
+/* ==================================================================
+ * Agencies reads  —  app/agencies/page.tsx, app/agencies/[slug]/page.tsx
+ * ================================================================== */
+
+/** All agencies with their launch count, most-launches first. `agencies.id`
+ * is the primary key, so Postgres allows grouping by it alone even though
+ * name/abbrev/type/country_code aren't aggregated (functional dependency). */
+export async function getAgenciesList() {
+  return db
+    .select({
+      id: agencies.id,
+      name: agencies.name,
+      abbrev: agencies.abbrev,
+      type: agencies.type,
+      countryCode: agencies.countryCode,
+      launchCount: count(launches.id),
+    })
+    .from(agencies)
+    .leftJoin(launches, eq(launches.agencyId, agencies.id))
+    .groupBy(agencies.id)
+    .orderBy(desc(count(launches.id)));
+}
+
+export async function getAgencyBySlug(slug: string) {
+  const [row] = await db.select().from(agencies).where(eq(agencies.id, slug)).limit(1);
+  return row ?? null;
+}
+
+export async function getAgencyStats(agencyId: string) {
+  const [totalRows, outcomeRows] = await Promise.all([
+    db.select({ value: count() }).from(launches).where(eq(launches.agencyId, agencyId)),
+    db
+      .select({
+        success: sql<string>`count(*) filter (where ${launches.status} = 'success')`,
+        terminal: sql<string>`count(*) filter (where ${launches.status} in ('success', 'failure'))`,
+      })
+      .from(launches)
+      .where(eq(launches.agencyId, agencyId)),
+  ]);
+
+  const success = Number(outcomeRows[0]?.success ?? 0);
+  const terminal = Number(outcomeRows[0]?.terminal ?? 0);
+
+  return {
+    totalLaunches: totalRows[0]?.value ?? 0,
+    successRate: terminal > 0 ? (success / terminal) * 100 : null,
+  };
+}
+
+/** Most recent launches for one agency, upcoming and past mixed together,
+ * newest-NET first — a single reverse-chronological feed rather than the
+ * full search/filter/paginate treatment `/launches` gets, since one
+ * agency's launch count is small relative to the whole archive. */
+export async function getAgencyLaunches(agencyId: string, limit = 20) {
+  return db
+    .select({
+      id: launches.id,
+      name: launches.name,
+      net: launches.net,
+      netPrecision: launches.netPrecision,
+      status: launches.status,
+    })
+    .from(launches)
+    .where(eq(launches.agencyId, agencyId))
+    .orderBy(desc(launches.net))
+    .limit(limit);
+}

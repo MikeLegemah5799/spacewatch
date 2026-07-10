@@ -5,7 +5,7 @@ export function AppShell({
   active,
   children,
 }: {
-  active: NavActive;
+  active?: NavActive;
   children: ReactNode;
 }) {
   return (

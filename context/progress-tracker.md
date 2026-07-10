@@ -9,8 +9,9 @@ change.
 
 ## Current Goal
 
-- The `/schedule` page: full upcoming-launch list grouped by month, matching
-  the approved mockup.
+- `/agencies` list + `/agencies/[slug]` detail pages (no mockup provided
+  for this unit — built against ARCHITECTURE.md §7's file structure and
+  project-overview.md's "Per-agency pages listing that agency's launches").
 
 ## Completed
 
@@ -107,9 +108,36 @@ change.
   pill) and reverified. Deleted the seed data afterward — DB is empty
   again.
 
+- `lib/db/queries.ts` — `getAgenciesList` (all agencies + launch count via
+  `leftJoin`/`groupBy(agencies.id)` — relies on Postgres's primary-key
+  functional-dependency rule to select non-aggregated columns), `getAgencyBySlug`,
+  `getAgencyStats` (total + success rate, same shape as the dashboard's),
+  `getAgencyLaunches` (most recent 20, upcoming and past mixed, newest
+  NET first — not the full search/filter/paginate treatment `/launches`
+  gets, since one agency's launches are a small slice of the archive).
+- `app/agencies/page.tsx` — replaces the placeholder; card grid, most
+  launches first, links to each agency's detail page.
+- `app/agencies/[slug]/page.tsx` — new route. Async `params` (Next 16
+  convention), calls `notFound()` for an unknown slug.
+- `app/not-found.tsx` — added because testing the 404 path above exposed
+  a real gap: Next's default 404 is a plain white page with zero relation
+  to this app's dark theme. Made `Nav`/`AppShell`'s `active` prop optional
+  (`NavActive | undefined`) so a themed not-found page can render the
+  shell with no tab highlighted.
+- Verified end to end: seeded 4 agencies (SpaceX, NASA, ULA, Rocket Lab)
+  and 9 launches split across them (mixed upcoming/past, mixed outcomes),
+  screenshotted the list grid, an agency detail page (stats + recent
+  launches correctly newest-first), a 404 for an unknown slug (confirmed
+  themed, no nav tab highlighted, no console errors), then deleted the
+  seed data. One seeding artifact worth noting: I inserted NASA's full
+  legal name directly to test card-layout wrapping, which doesn't reflect
+  real data — `normalizeAgency` always shortens it before it ever reaches
+  the DB, so production agency names never look like that.
+
 ## In Progress
 
-- None — this unit (`/schedule`) is complete and verified end to end.
+- None — this unit (`/agencies` list + detail) is complete and verified
+  end to end.
 
 ## Next Up
 
@@ -119,7 +147,6 @@ change.
   since schedule-sync only ever writes `isUpcoming: true` rows.
 - SpaceX enrichment pass (`lib/providers/spacex.ts`) and NASA imagery
   (`lib/providers/nasa.ts`) — both fail-soft, neither built yet.
-- `/agencies/[slug]` detail pages.
 - A real Calendar view for `/schedule` — the mockup shows a List/Calendar
   toggle, but no calendar-view design or behavior is specified anywhere
   in the context docs. Rendered as an inert, disabled-looking button for
@@ -128,6 +155,9 @@ change.
   launch's NET passes and LL2 drops it from `/launch/upcoming/` — schedule-
   sync only ever upserts with `isUpcoming: true`. Likely belongs with the
   backfill unit; flagged here so it isn't lost.
+- `/agencies/[slug]`'s "Recent Launches" is capped at 20 with no
+  pagination — fine while the DB is small, but will need it eventually
+  for a prolific agency like SpaceX once backfill is running.
 
 ## Open Questions
 
