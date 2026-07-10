@@ -2,7 +2,7 @@
  * Ingestion upsert  —  the shape lib/providers + normalize feed into
  * ================================================================== */
 
-import { and, asc, count, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
 import { agencies, db, launches, type NewAgency, type NewLaunch } from "@/lib/db";
 
 export async function upsertAgencies(rows: NewAgency[]) {
@@ -137,3 +137,86 @@ export async function getDashboardStats() {
     agencyCount: agencyTotal[0]?.value ?? 0,
   };
 }
+
+/* ==================================================================
+ * Launches (historical archive) reads  —  app/launches/page.tsx
+ * ================================================================== */
+
+export async function getLaunchesSummary() {
+  const [totalRows, agencyRows] = await Promise.all([
+    db.select({ value: count() }).from(launches),
+    db.select({ value: count() }).from(agencies),
+  ]);
+
+  return {
+    totalLaunches: totalRows[0]?.value ?? 0,
+    agencyCount: agencyRows[0]?.value ?? 0,
+  };
+}
+
+/** Top providers by launch count — backs the quick-filter chip row. */
+export async function getTopProviders(limit = 3) {
+  return db
+    .select({ providerName: launches.providerName, value: count() })
+    .from(launches)
+    .groupBy(launches.providerName)
+    .orderBy(desc(count()))
+    .limit(limit);
+}
+
+export interface LaunchesQuery {
+  search?: string;
+  provider?: string;
+  outcome?: "success" | "failure";
+  sort?: "newest" | "oldest";
+  page?: number;
+  pageSize?: number;
+}
+
+export async function getLaunchesPage(params: LaunchesQuery = {}) {
+  const page = Math.max(1, Math.trunc(params.page ?? 1) || 1);
+  const pageSize = Math.min(50, Math.max(1, Math.trunc(params.pageSize ?? 20) || 20));
+  const offset = (page - 1) * pageSize;
+
+  // The historical archive is, by definition, launches that are no longer
+  // upcoming — see the `isUpcoming` comment in schema.ts.
+  const conditions = [eq(launches.isUpcoming, false)];
+  if (params.provider) conditions.push(eq(launches.providerName, params.provider));
+  if (params.outcome) conditions.push(eq(launches.status, params.outcome));
+  if (params.search?.trim()) {
+    conditions.push(
+      sql`to_tsvector('english', coalesce(${launches.searchText}, '')) @@ plainto_tsquery('english', ${params.search.trim()})`,
+    );
+  }
+  const where = and(...conditions);
+  const orderBy = params.sort === "oldest" ? asc(launches.net) : desc(launches.net);
+
+  const [rows, totalRows] = await Promise.all([
+    db
+      .select({
+        id: launches.id,
+        name: launches.name,
+        providerName: launches.providerName,
+        rocket: launches.rocket,
+        net: launches.net,
+        netPrecision: launches.netPrecision,
+        status: launches.status,
+      })
+      .from(launches)
+      .where(where)
+      .orderBy(orderBy)
+      .limit(pageSize)
+      .offset(offset),
+    db.select({ value: count() }).from(launches).where(where),
+  ]);
+
+  return {
+    launches: rows,
+    total: totalRows[0]?.value ?? 0,
+    page,
+    pageSize,
+  };
+}
+
+export type LaunchesPageResult = Awaited<ReturnType<typeof getLaunchesPage>>;
+export type LaunchRow = LaunchesPageResult["launches"][number];

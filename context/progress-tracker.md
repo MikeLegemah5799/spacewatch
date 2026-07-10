@@ -9,9 +9,8 @@ change.
 
 ## Current Goal
 
-- Schedule-sync ingestion (LL2 → normalize → Postgres), so the dashboard
-  built in the previous unit reflects real launch data instead of an
-  empty state.
+- The `/launches` historical archive: searchable, filterable, paginated
+  table, matching the approved mockup.
 
 ## Completed
 
@@ -54,21 +53,47 @@ change.
   launches + 18 agencies upserted, dashboard rendered them correctly
   (screenshotted), then deleted that data — the DB is empty again, ready
   for a real cron run against production LL2.
+- `lib/db/queries.ts` — `getLaunchesSummary`, `getTopProviders`,
+  `getLaunchesPage` (search/provider/outcome/sort/pagination against the
+  historical archive — i.e. `isUpcoming = false`). Full-text search uses
+  the existing `searchText` tsvector/gin index.
+- `app/api/launches/route.ts` — client-filtering JSON endpoint per
+  ARCHITECTURE.md §7, validates `outcome`/`sort` against known enums,
+  clamps `page`/`pageSize` server-side (`getLaunchesPage` clamps
+  regardless of what the route passes through).
+- `components/launches-browser.tsx` — the one client component for this
+  page (search box debounced 300ms, provider/outcome filter chips, sort
+  select, table, pagination). Everything else on `/launches` is a Server
+  Component.
+- `app/launches/page.tsx` — replaces the placeholder from the dashboard
+  unit; RSC fetches page 1 + summary + top-3-providers server-side, hands
+  it to `LaunchesBrowser` as `initial` so there's no client round-trip on
+  first paint.
+- Verified end to end: seeded 10 historical launches across 4 providers
+  (mixed success/failure) directly in Neon, screenshotted the default
+  view, the Failure filter, and a "starlink" search — all matched
+  expected results, no console errors. Caught and fixed a real bug this
+  way: the route wasn't reading `pageSize` from the query string at all
+  (always fell back to the default 20). Deleted the seed data afterward —
+  DB is empty again.
 
 ## In Progress
 
-- None — this unit (schedule-sync ingestion) is complete and verified end
-  to end.
+- None — this unit (`/launches` historical archive) is complete and
+  verified end to end.
 
 ## Next Up
 
 - Historical backfill (daily, paginated, resumable via `sync_runs.cursor`) —
   a separate cadence/boundary from schedule-sync, deliberately not built
-  in this unit.
+  yet. Also the only way `/launches` will have real (non-empty) data,
+  since schedule-sync only ever writes `isUpcoming: true` rows.
 - SpaceX enrichment pass (`lib/providers/spacex.ts`) and NASA imagery
   (`lib/providers/nasa.ts`) — both fail-soft, neither built yet.
-- `/launches` (historical archive + search/filter) and `/schedule` (full
-  upcoming list) real implementations, replacing the current placeholders.
+- `/schedule` (full upcoming list) real implementation, replacing the
+  current placeholder — should be a smaller version of the `/launches`
+  pattern (RSC + one client component), filtered to `isUpcoming = true`
+  instead.
 - `/agencies/[slug]` detail pages.
 - Nothing currently flips `launches.isUpcoming` back to `false` once a
   launch's NET passes and LL2 drops it from `/launch/upcoming/` — schedule-
@@ -115,6 +140,15 @@ change.
   insert — a single sync batch has many launches from the same agency,
   and Postgres rejects an `ON CONFLICT DO UPDATE` batch with the same
   conflict key twice in one statement.
+- `/launches`' provider quick-filter chips are the top 3 providers *by
+  launch count* (`getTopProviders`), not a hardcoded list — the mockup
+  showed SpaceX/NASA/ULA, but that's this dataset's top 3, not a fixed
+  set the product depends on.
+- Provider names on `/launches` are all rendered in the accent color
+  (`text-neon-400`), matching the dashboard's table convention, rather
+  than the mockup's apparent SpaceX-only highlighting — no rule for
+  *which* providers should be highlighted was ever specified, so a
+  consistent treatment for all rows was the safer read.
 
 ## Session Notes
 
