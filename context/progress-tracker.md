@@ -9,10 +9,8 @@ change.
 
 ## Current Goal
 
-- Fix `isUpcoming` never transitioning: schedule-sync should flip a
-  launch to historical once it drops off LL2's upcoming list, and
-  backfill should catch up newly-completed launches once it's fully
-  drained instead of going permanently idle.
+- `/agencies/[slug]` pagination — the "Recent Launches" list was capped
+  at 20 with no way to see older launches.
 
 ## Completed
 
@@ -303,10 +301,33 @@ change.
   2 pages) rather than short-circuiting, and `sync_runs` shows all three
   runs recorded distinctly. Deleted seed data afterward.
 
+- `lib/db/queries.ts` — replaced `getAgencyLaunches` (hard-capped at 20,
+  no way to see older launches) with `getAgencyLaunchesPage(agencyId,
+  page, pageSize)`, same shape/clamping convention as `getLaunchesPage`.
+  Only one call site existed, so this was a clean replace, not a
+  parallel API.
+- `lib/format.ts` — extracted `getPageWindow` (the "up to 3 page numbers
+  centered on current" helper) out of `components/launches-browser.tsx`,
+  which had it as a locally-scoped duplicate. Now shared between that
+  client component and the new server-rendered pagination here.
+- `app/agencies/[slug]/page.tsx` — reads `?page=` from `searchParams` and
+  renders Prev/page-numbers/Next as plain `<Link>`s (no client
+  component) — same URL-param pattern as the schedule calendar's month
+  navigation, appropriate here since there's nothing to filter *by* on a
+  single-agency page, just pages to move through. Renamed the section
+  from "Recent Launches" to "Launches" since it's the full paginated list
+  now, not a preview, and added a "N total" count next to the heading.
+- Verified end to end: seeded 27 launches for one agency (over the old
+  20-cap), confirmed page 1 shows 20 with `Prev` disabled and `2`/`Next`
+  available, page 2 shows the remaining 7 with `Next` correctly disabled,
+  and reconfirmed `/launches` still works after the shared
+  `getPageWindow` extraction. No console errors. Deleted seed data
+  afterward.
+
 ## In Progress
 
-- None — this unit (`isUpcoming` transitions + backfill catch-up) is
-  complete and verified end to end.
+- None — this unit (`/agencies/[slug]` pagination) is complete and
+  verified end to end.
 
 ## Next Up
 
@@ -323,9 +344,6 @@ change.
   project structure but was never built; `/launches` is list-only so
   far). Enrichment data will sit unused in the database until that page
   exists.
-- `/agencies/[slug]`'s "Recent Launches" is capped at 20 with no
-  pagination — fine while the DB is small, but will need it eventually
-  for a prolific agency like SpaceX now that backfill is real.
 - A launch whose NET passes but LL2 is slow to drop it from
   `/upcoming/` (or that schedule-sync's own fetch window doesn't cover)
   won't get flipped until the *next* schedule-sync run notices it's

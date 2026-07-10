@@ -47,3 +47,14 @@ export function formatSite(padLocation: string | null): string {
   const beforeComma = padLocation.split(",")[0].trim();
   return beforeComma.replace(/\s+(SFS|SFB|AFB|AFS)$/i, "");
 }
+
+/** A window of up to `size` page numbers centered on `current`, clamped to
+ * [1, total] — the numbered-page-buttons row shared by every paginated
+ * list in this app. */
+export function getPageWindow(current: number, total: number, size = 3): number[] {
+  const end = Math.min(total, Math.max(size, current + 1));
+  const start = Math.max(1, end - size + 1);
+  const pages: number[] = [];
+  for (let p = start; p <= end; p++) pages.push(p);
+  return pages;
+}

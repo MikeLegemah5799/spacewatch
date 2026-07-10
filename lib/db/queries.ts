@@ -350,23 +350,40 @@ export async function getAgencyStats(agencyId: string) {
   };
 }
 
-/** Most recent launches for one agency, upcoming and past mixed together,
- * newest-NET first — a single reverse-chronological feed rather than the
- * full search/filter/paginate treatment `/launches` gets, since one
- * agency's launch count is small relative to the whole archive. */
-export async function getAgencyLaunches(agencyId: string, limit = 20) {
-  return db
-    .select({
-      id: launches.id,
-      name: launches.name,
-      net: launches.net,
-      netPrecision: launches.netPrecision,
-      status: launches.status,
-    })
-    .from(launches)
-    .where(eq(launches.agencyId, agencyId))
-    .orderBy(desc(launches.net))
-    .limit(limit);
+/** Paginated launches for one agency, upcoming and past mixed together,
+ * newest-NET first — plain pagination rather than the full search/filter
+ * treatment `/launches` gets, since there's nothing to filter *by* on a
+ * page that's already scoped to one agency. */
+export async function getAgencyLaunchesPage(agencyId: string, page = 1, pageSize = 20) {
+  const clampedPage = Math.max(1, Math.trunc(page) || 1);
+  const clampedPageSize = Math.min(50, Math.max(1, Math.trunc(pageSize) || 20));
+  const offset = (clampedPage - 1) * clampedPageSize;
+
+  const where = eq(launches.agencyId, agencyId);
+
+  const [rows, totalRows] = await Promise.all([
+    db
+      .select({
+        id: launches.id,
+        name: launches.name,
+        net: launches.net,
+        netPrecision: launches.netPrecision,
+        status: launches.status,
+      })
+      .from(launches)
+      .where(where)
+      .orderBy(desc(launches.net))
+      .limit(clampedPageSize)
+      .offset(offset),
+    db.select({ value: count() }).from(launches).where(where),
+  ]);
+
+  return {
+    launches: rows,
+    total: totalRows[0]?.value ?? 0,
+    page: clampedPage,
+    pageSize: clampedPageSize,
+  };
 }
 
 /* ==================================================================

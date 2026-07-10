@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { IconSearch } from "@tabler/icons-react";
 import { StatusPill } from "@/components/status-pill";
 import type { LaunchesPageResult } from "@/lib/db/queries";
-import { formatNet, getMissionName } from "@/lib/format";
+import { formatNet, getMissionName, getPageWindow } from "@/lib/format";
 
 type OutcomeFilter = "success" | "failure" | null;
 type SortOrder = "newest" | "oldest";
@@ -13,14 +13,6 @@ function chipClass(active: boolean) {
   return active
     ? "rounded-md border border-neon-400 px-4 py-2 text-sm text-neon-400"
     : "rounded-md border border-line-soft px-4 py-2 text-sm text-ink-muted hover:text-ink";
-}
-
-function getPageWindow(current: number, total: number, size = 3): number[] {
-  const end = Math.min(total, Math.max(size, current + 1));
-  const start = Math.max(1, end - size + 1);
-  const pages: number[] = [];
-  for (let p = start; p <= end; p++) pages.push(p);
-  return pages;
 }
 
 export function LaunchesBrowser({
