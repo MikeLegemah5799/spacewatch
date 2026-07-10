@@ -10,7 +10,7 @@ const NAV_LINKS = [
 
 export type NavActive = (typeof NAV_LINKS)[number]["label"];
 
-export function Nav({ active }: { active: NavActive }) {
+export function Nav({ active }: { active?: NavActive }) {
   return (
     <header className="flex items-center justify-between border-b border-line-soft bg-space-900 px-8 py-4">
       <div className="flex items-center gap-10">

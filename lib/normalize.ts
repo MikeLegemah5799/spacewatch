@@ -78,7 +78,17 @@ export function normalizeAgency(raw: LL2Agency): NewAgency {
   };
 }
 
-export function normalizeLaunch(raw: LL2Launch): NewLaunch {
+/**
+ * `isUpcoming` is set by the caller rather than inferred from `raw.status`,
+ * matching which LL2 endpoint the row came from: schedule-sync always
+ * passes `true` (it only ever reads `/launch/upcoming/`), backfill always
+ * passes `false` (it only ever reads `/launch/previous/`). LL2's own
+ * "previous" list can include a launch whose status hasn't been updated to
+ * a terminal outcome yet (net has passed but LL2 still shows e.g. "Go") —
+ * trusting the source endpoint, not the status field, is what keeps
+ * `isUpcoming` consistent with which cron actually saw the row.
+ */
+export function normalizeLaunch(raw: LL2Launch, isUpcoming: boolean): NewLaunch {
   const missionName = raw.mission?.name ?? raw.name;
   const orbitAbbrev =
     raw.mission?.orbit && raw.mission.orbit.abbrev !== "N/A" ? raw.mission.orbit.abbrev : null;
@@ -105,7 +115,7 @@ export function normalizeLaunch(raw: LL2Launch): NewLaunch {
     windowStart: raw.window_start ? new Date(raw.window_start) : null,
     windowEnd: raw.window_end ? new Date(raw.window_end) : null,
     status: STATUS_MAP[raw.status.id] ?? "tbd",
-    isUpcoming: true,
+    isUpcoming,
     padName: raw.pad?.name ?? null,
     padLocation: raw.pad?.location?.name ?? null,
     padLatitude: raw.pad?.latitude ?? null,

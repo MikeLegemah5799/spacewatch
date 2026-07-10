@@ -126,18 +126,52 @@ function authHeaders(): HeadersInit {
   return process.env.LL2_API_KEY ? { Authorization: `Token ${process.env.LL2_API_KEY}` } : {};
 }
 
+/** Thrown specifically on HTTP 429. The backfill cron treats this as an
+ * expected pause-and-resume-later point, not a hard failure — see
+ * ARCHITECTURE.md §3 ("so a rate-limit stall can pick back up where it
+ * stopped"). The schedule-sync cron just lets it propagate as a normal
+ * failed run, since it only ever needs one page. */
+export class LL2RateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LL2RateLimitError";
+  }
+}
+
+async function fetchLaunchList(url: string | URL): Promise<LL2ListResponse<LL2Launch>> {
+  const res = await fetch(url, { headers: authHeaders() });
+
+  if (res.status === 429) {
+    throw new LL2RateLimitError(`LL2 rate limit hit (429) fetching ${url}`);
+  }
+  if (!res.ok) {
+    throw new Error(`LL2 request failed: ${res.status} ${res.statusText} (${url})`);
+  }
+
+  const body = (await res.json()) as LL2ListResponse<unknown>;
+  body.results.forEach(assertLaunchShape);
+  return body as LL2ListResponse<LL2Launch>;
+}
+
 /** The upcoming-launch schedule — feeds the ~15-minute schedule-sync cron. */
 export async function fetchUpcomingLaunches(limit = 50): Promise<LL2Launch[]> {
   const url = new URL(`${LL2_BASE_URL}/launch/upcoming/`);
   url.searchParams.set("limit", String(limit));
   url.searchParams.set("mode", "detailed");
 
-  const res = await fetch(url, { headers: authHeaders() });
-  if (!res.ok) {
-    throw new Error(`LL2 upcoming-launches request failed: ${res.status} ${res.statusText}`);
-  }
+  const body = await fetchLaunchList(url);
+  return body.results;
+}
 
-  const body = (await res.json()) as LL2ListResponse<unknown>;
-  body.results.forEach(assertLaunchShape);
-  return body.results as LL2Launch[];
+const PREVIOUS_LAUNCHES_FIRST_PAGE = `${LL2_BASE_URL}/launch/previous/?limit=50&mode=detailed`;
+
+/** One page of the historical archive, ordered newest-first by LL2. Pass
+ * the `next` URL from a prior call to page forward — LL2's `next` link
+ * already encodes offset/limit/mode, so it doubles as the resumable
+ * cursor stored in `sync_runs.cursor`. Omit it to start from page one. */
+export async function fetchPreviousLaunches(
+  pageUrl: string = PREVIOUS_LAUNCHES_FIRST_PAGE,
+): Promise<{ launches: LL2Launch[]; next: string | null }> {
+  const body = await fetchLaunchList(pageUrl);
+  return { launches: body.results, next: body.next };
 }

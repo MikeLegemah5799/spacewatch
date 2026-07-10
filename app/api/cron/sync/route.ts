@@ -31,7 +31,7 @@ export async function GET(request: Request) {
     const rawLaunches = await fetchUpcomingLaunches(50);
 
     const agencyRows = rawLaunches.map((launch) => normalizeAgency(launch.launch_service_provider));
-    const launchRows = rawLaunches.map(normalizeLaunch);
+    const launchRows = rawLaunches.map((launch) => normalizeLaunch(launch, true));
 
     await upsertAgencies(agencyRows);
     const upserted = await upsertLaunches(launchRows);

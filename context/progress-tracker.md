@@ -9,8 +9,9 @@ change.
 
 ## Current Goal
 
-- The `/schedule` page: full upcoming-launch list grouped by month, matching
-  the approved mockup.
+- Historical backfill: drain LL2's `/launch/previous/` into Postgres,
+  paginated and resumable, per ARCHITECTURE.md §3 — the only way
+  `/launches` gets real (non-empty) data.
 
 ## Completed
 
@@ -107,27 +108,103 @@ change.
   pill) and reverified. Deleted the seed data afterward — DB is empty
   again.
 
+- `lib/db/queries.ts` — `getAgenciesList` (all agencies + launch count via
+  `leftJoin`/`groupBy(agencies.id)` — relies on Postgres's primary-key
+  functional-dependency rule to select non-aggregated columns), `getAgencyBySlug`,
+  `getAgencyStats` (total + success rate, same shape as the dashboard's),
+  `getAgencyLaunches` (most recent 20, upcoming and past mixed, newest
+  NET first — not the full search/filter/paginate treatment `/launches`
+  gets, since one agency's launches are a small slice of the archive).
+- `app/agencies/page.tsx` — replaces the placeholder; card grid, most
+  launches first, links to each agency's detail page.
+- `app/agencies/[slug]/page.tsx` — new route. Async `params` (Next 16
+  convention), calls `notFound()` for an unknown slug.
+- `app/not-found.tsx` — added because testing the 404 path above exposed
+  a real gap: Next's default 404 is a plain white page with zero relation
+  to this app's dark theme. Made `Nav`/`AppShell`'s `active` prop optional
+  (`NavActive | undefined`) so a themed not-found page can render the
+  shell with no tab highlighted.
+- Verified end to end: seeded 4 agencies (SpaceX, NASA, ULA, Rocket Lab)
+  and 9 launches split across them (mixed upcoming/past, mixed outcomes),
+  screenshotted the list grid, an agency detail page (stats + recent
+  launches correctly newest-first), a 404 for an unknown slug (confirmed
+  themed, no nav tab highlighted, no console errors), then deleted the
+  seed data. One seeding artifact worth noting: I inserted NASA's full
+  legal name directly to test card-layout wrapping, which doesn't reflect
+  real data — `normalizeAgency` always shortens it before it ever reaches
+  the DB, so production agency names never look like that.
+
+- `lib/providers/ll2.ts` — `fetchPreviousLaunches(pageUrl?)`, paginating
+  `/launch/previous/`. Refactored the shared fetch+validate logic out of
+  `fetchUpcomingLaunches` into one `fetchLaunchList` helper both use.
+  Added `LL2RateLimitError` (thrown specifically on HTTP 429) so callers
+  can distinguish "rate-limited, resume later" from a hard failure.
+  The resumable cursor is just LL2's own `next` URL (already encodes
+  offset/limit/mode) rather than an offset I'd have to track myself.
+- `lib/normalize.ts` — `normalizeLaunch` now takes an explicit
+  `isUpcoming: boolean` parameter instead of hardcoding `true`. It's set
+  by which endpoint the caller fetched from (schedule-sync passes `true`,
+  backfill passes `false`), not inferred from `raw.status` — confirmed via
+  real data that LL2's `/previous/` list can include a launch whose NET
+  has passed but whose status is still "Go" (not yet updated to a
+  terminal outcome), so trusting the endpoint is what keeps `isUpcoming`
+  meaning "which cron saw this," consistently.
+- `app/api/cron/backfill/route.ts` — new cron, separate cadence from
+  schedule-sync. Resumes from the last incomplete run's cursor (or starts
+  fresh), loops pages up to `MAX_PAGES_PER_RUN = 10` per invocation
+  (anonymous LL2 is ~15 req/hour; staying under that leaves headroom for
+  schedule-sync's own calls), and stops — saving the cursor, not erroring
+  — on: full drain (`next === null`), the page cap, or a 429. A run that
+  already finished successfully short-circuits immediately instead of
+  re-walking from page one (harmless but wasteful, since upserts are
+  idempotent and LL2 orders `/previous/` newest-first anyway — see the
+  Open Question about catching up newly-completed launches). Added
+  `maxDuration = 60` (route segment config) since one invocation makes up
+  to 10 sequential upstream requests.
+- `vercel.json` — added the `0 3 * * *` daily backfill cron alongside the
+  existing 15-minute schedule-sync one.
+- Verified end to end against the LL2 dev mirror (production quota was
+  down to its last request from earlier research, not worth risking):
+  first invocation drained all 350 available launches in 7 pages and
+  returned `done: true`; a second invocation correctly short-circuited
+  with "already complete" instead of re-fetching; `sync_runs` showed the
+  single completed row with `cursor` cleared; `/launches` (built two
+  units ago) immediately reflected the real ingested data — 350 launches,
+  29 real agencies, real provider quick-filter chips (SpaceX/CASC/Rocket
+  Lab, not the old seeded SpaceX/NASA/ULA) — with zero code changes to
+  that page, confirming it was truly reading from the DB and not
+  coupled to my earlier test fixtures. Deleted the data afterward — DB
+  is empty again, ready for a real run.
+
 ## In Progress
 
-- None — this unit (`/schedule`) is complete and verified end to end.
+- None — this unit (historical backfill) is complete and verified end to
+  end.
 
 ## Next Up
 
-- Historical backfill (daily, paginated, resumable via `sync_runs.cursor`) —
-  a separate cadence/boundary from schedule-sync, deliberately not built
-  yet. Also the only way `/launches` will have real (non-empty) data,
-  since schedule-sync only ever writes `isUpcoming: true` rows.
 - SpaceX enrichment pass (`lib/providers/spacex.ts`) and NASA imagery
   (`lib/providers/nasa.ts`) — both fail-soft, neither built yet.
-- `/agencies/[slug]` detail pages.
 - A real Calendar view for `/schedule` — the mockup shows a List/Calendar
   toggle, but no calendar-view design or behavior is specified anywhere
   in the context docs. Rendered as an inert, disabled-looking button for
   now rather than inventing a calendar UI. See Open Questions.
 - Nothing currently flips `launches.isUpcoming` back to `false` once a
-  launch's NET passes and LL2 drops it from `/launch/upcoming/` — schedule-
-  sync only ever upserts with `isUpcoming: true`. Likely belongs with the
-  backfill unit; flagged here so it isn't lost.
+  launch's NET passes and LL2 drops it from `/launch/upcoming/`.
+  Schedule-sync only ever upserts `isUpcoming: true`; backfill only ever
+  upserts `isUpcoming: false`; neither one *transitions* an existing row.
+  In practice a launch will get corrected the first time backfill's
+  pagination reaches it post-completion, but there's a window where a
+  launch that's actually happened still shows as upcoming.
+- Related: once a full backfill completes, there's no mechanism to catch
+  up *newly*-completed launches going forward — the route as built only
+  handles "drain everything once." LL2 orders `/previous/` newest-first,
+  so a small periodic "check the first page or two for anything not yet
+  in our DB" pass is probably the right shape, but that's a distinct
+  behavior from resumable pagination and deliberately not built here.
+- `/agencies/[slug]`'s "Recent Launches" is capped at 20 with no
+  pagination — fine while the DB is small, but will need it eventually
+  for a prolific agency like SpaceX now that backfill is real.
 
 ## Open Questions
 
@@ -137,10 +214,12 @@ change.
   the dashboard *is* the landing experience for this project.
 - Nav's avatar icon is a generic placeholder (no Auth.js integration yet, per
   ARCHITECTURE.md §2 "Auth (optional)"). Decide when/if that gets built.
-- No `LL2_API_KEY` is configured yet (anonymous tier: ~15 req/hour). Fine for
-  one schedule-sync call at a time, but worth getting a free key before the
-  15-minute cron is actually deployed, since dev/testing already used up a
-  chunk of the hourly quota.
+- No `LL2_API_KEY` is configured yet (anonymous tier: ~15 req/hour). Getting
+  one before deploying either cron for real is no longer just a nice-to-have
+  — dev/testing across these units has repeatedly run the production quota
+  down to its last request or two, and a real 15-minute schedule-sync cron
+  plus a 10-page-per-run daily backfill will contend for the same ~15/hour
+  ceiling once both are live.
 - What should "Calendar" on `/schedule` actually be? No design/behavior for
   it exists in any context file, only the toggle button in the mockup.
 - Both the dashboard and schedule mockups show combined provider naming
@@ -199,7 +278,9 @@ change.
   `DATABASE_URL_UNPOOLED` (direct, for `drizzle-kit`), and `CRON_SECRET`
   (generated locally for testing — regenerate for production). Migration
   already applied — `drizzle/0000_great_night_thrasher.sql`.
-- To resume: DB is currently empty. Run the cron route manually to populate
-  it: `curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/sync`.
-  No `LL2_API_BASE_URL` override is set by default, so this hits real
-  production LL2 — mind the 15/hour anonymous rate limit.
+- To resume: DB is currently empty. Populate it with
+  `curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/sync`
+  (upcoming) and `.../api/cron/backfill` (historical). No `LL2_API_BASE_URL`
+  override is set by default, so both hit real production LL2 — mind the
+  15/hour anonymous rate limit, which this session has run close to empty
+  more than once.
