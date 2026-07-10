@@ -2,7 +2,7 @@
  * Ingestion upsert  —  the shape lib/providers + normalize feed into
  * ================================================================== */
 
-import { and, asc, count, desc, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, lt, lte, sql } from "drizzle-orm";
 import { agencies, db, launches, type NewAgency, type NewLaunch } from "@/lib/db";
 
 export async function upsertAgencies(rows: NewAgency[]) {
@@ -253,6 +253,27 @@ export async function getScheduleLaunches() {
 }
 
 export type ScheduleLaunchRow = Awaited<ReturnType<typeof getScheduleLaunches>>[number];
+
+/** Upcoming launches within one calendar month (UTC), for the schedule
+ * calendar view. `month` is 0-indexed (matches `Date#getUTCMonth`). */
+export async function getScheduleLaunchesForMonth(year: number, month: number) {
+  const start = new Date(Date.UTC(year, month, 1));
+  const end = new Date(Date.UTC(year, month + 1, 1));
+
+  return db
+    .select({
+      id: launches.id,
+      name: launches.name,
+      providerName: launches.providerName,
+      net: launches.net,
+      netPrecision: launches.netPrecision,
+      status: launches.status,
+      padLocation: launches.padLocation,
+    })
+    .from(launches)
+    .where(and(eq(launches.isUpcoming, true), gte(launches.net, start), lt(launches.net, end)))
+    .orderBy(asc(launches.net));
+}
 
 /* ==================================================================
  * Agencies reads  —  app/agencies/page.tsx, app/agencies/[slug]/page.tsx

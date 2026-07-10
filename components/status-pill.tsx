@@ -1,6 +1,9 @@
 import type { Launch } from "@/lib/db";
 
-const STATUS_CONFIG: Record<
+/** Shared with the schedule calendar's day chips, which use the same
+ * textClass/borderVar pair but not the label (they show the mission name
+ * instead). */
+export const STATUS_CONFIG: Record<
   Launch["status"],
   { label: string; textClass: string; borderVar: string }
 > = {

@@ -9,9 +9,8 @@ change.
 
 ## Current Goal
 
-- Historical backfill: drain LL2's `/launch/previous/` into Postgres,
-  paginated and resumable, per ARCHITECTURE.md §3 — the only way
-  `/launches` gets real (non-empty) data.
+- The `/schedule` Calendar view, matching the approved mockup — resolves
+  the "what should Calendar be" open question from the prior unit.
 
 ## Completed
 
@@ -176,19 +175,55 @@ change.
   coupled to my earlier test fixtures. Deleted the data afterward — DB
   is empty again, ready for a real run.
 
+- `components/status-pill.tsx` — exported `STATUS_CONFIG` (was
+  module-private) so the calendar's day chips reuse the exact same
+  status→color mapping instead of a second copy.
+- `lib/db/queries.ts` — `getScheduleLaunchesForMonth(year, month)`, a
+  UTC calendar-month-scoped query (0-indexed month, matches
+  `Date#getUTCMonth`) — a real DB-level query rather than filtering the
+  full upcoming list client-side, consistent with how every other page
+  pushes filtering into the query layer.
+- `components/schedule-list.tsx` — extracted the List view's rendering
+  (and its `groupByMonth` helper) out of `app/schedule/page.tsx` verbatim,
+  now taking `rows` as a prop.
+- `components/schedule-calendar.tsx` — new. Month grid with leading *and*
+  trailing blank cells (padded to a full 7-column last row — the first
+  attempt only padded leading blanks, which left the grid's rounded
+  corner clipping oddly over an implicit empty grid cell after day 31;
+  fixed and reverified), day chips colored via the shared `STATUS_CONFIG`
+  and labeled with the full `getMissionName` (CSS `truncate`, not a
+  bespoke abbreviation — the mockup's shortened chip text, e.g. "Starlink
+  12-9" for "Starlink Group 12-9", reads as mockup shorthand rather than
+  a spec'd truncation rule), a max of 3 chips per day plus a "+N more"
+  overflow, and a ring highlight + bold day number for today. Prev/next
+  month navigation is plain `<Link>`s with a `?month=YYYY-MM` param — no
+  client JS.
+- `app/schedule/page.tsx` — now reads `searchParams` (`view`, `month`) to
+  choose List vs. Calendar and, for Calendar, which month; both are still
+  Server Components fetching their own data, so the whole page remains
+  client-JS-free. Refined the List/Calendar toggle to match this mockup's
+  treatment more closely than the placeholder from the prior unit: active
+  = solid `bg-neon-400` fill with dark text, inactive = muted border —
+  applied to *both* tabs now, superseding the border-only "active" style
+  the List-only version used before a Calendar mockup existed to compare
+  against.
+- Verified end to end: seeded 8 upcoming launches across July/August 2026
+  (mixed go/tbd) directly in Neon, screenshotted the calendar for the
+  current month (day chips, today's ring+bold highlight, legend) and
+  after navigating to next month (correctly empty of highlight, shows the
+  one seeded August launch), and the List view to confirm the shared
+  toggle refactor didn't regress it. No console errors. Deleted the seed
+  data afterward — DB is empty again.
+
 ## In Progress
 
-- None — this unit (historical backfill) is complete and verified end to
-  end.
+- None — this unit (`/schedule` Calendar view) is complete and verified
+  end to end.
 
 ## Next Up
 
 - SpaceX enrichment pass (`lib/providers/spacex.ts`) and NASA imagery
   (`lib/providers/nasa.ts`) — both fail-soft, neither built yet.
-- A real Calendar view for `/schedule` — the mockup shows a List/Calendar
-  toggle, but no calendar-view design or behavior is specified anywhere
-  in the context docs. Rendered as an inert, disabled-looking button for
-  now rather than inventing a calendar UI. See Open Questions.
 - Nothing currently flips `launches.isUpcoming` back to `false` once a
   launch's NET passes and LL2 drops it from `/launch/upcoming/`.
   Schedule-sync only ever upserts `isUpcoming: true`; backfill only ever
@@ -220,8 +255,6 @@ change.
   down to its last request or two, and a real 15-minute schedule-sync cron
   plus a 10-page-per-run daily backfill will contend for the same ~15/hour
   ceiling once both are live.
-- What should "Calendar" on `/schedule` actually be? No design/behavior for
-  it exists in any context file, only the toggle button in the mockup.
 - Both the dashboard and schedule mockups show combined provider naming
   ("NASA · SpaceX") for multi-agency missions, but `providerName` currently
   only ever holds LL2's single `launch_service_provider` (see the existing
@@ -271,6 +304,17 @@ change.
   curated per-site lookup, so an unfamiliar site name will just show
   as-is rather than being shortened to whatever colloquial form a human
   would pick.
+- Calendar month navigation is URL-param-based (`?view=calendar&month=YYYY-MM`)
+  rather than client-state-based, so `/schedule` stays 100% Server
+  Components — consistent with ARCHITECTURE.md §5 calling this page "RSC,
+  revalidated," and with how `/launches` is the one page in this app that
+  actually needed a client component (search debouncing can't be done any
+  other way).
+- Day chips cap at 3 per cell with a "+N more" overflow rather than
+  growing the cell to fit every launch — not specified by the mockup
+  (which never showed more than one launch on any single day), but a
+  reasonable defensive default once real backfilled data means some days
+  legitimately have many launches (e.g. Starlink cadence).
 
 ## Session Notes
 
